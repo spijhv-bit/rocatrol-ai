@@ -316,7 +316,7 @@ export default function CotizarPage() {
   const tituloCotizacion = resultado ? resultado.resumen : "Nueva cotización";
 
   return (
-    <div className="flex min-h-screen bg-roca-dark">
+    <div className="flex min-h-screen bg-[#1f2937]">
       {/* Sidebar tipo Windows Explorer */}
       <NavegadorSidebar
         etapaActual={etapaActualId}
@@ -325,9 +325,9 @@ export default function CotizarPage() {
         tituloCotizacion={tituloCotizacion}
       />
 
-      {/* Contenido principal */}
-      <main className="flex-1 min-w-0 px-4 py-5 pl-14 sm:px-6 sm:py-6 md:pl-6">
-        <div className="mx-auto w-full max-w-3xl">
+      {/* Contenido principal — más amplio para que el catálogo respire */}
+      <main className="flex-1 min-w-0 px-4 py-5 pl-14 sm:px-6 sm:py-6 md:pl-8 lg:px-10">
+        <div className="mx-auto w-full max-w-5xl">
           {/* Breadcrumb arriba (estilo File Explorer) */}
           <div className="mb-5 flex items-center gap-1.5 text-[11px] text-white/40">
             <span>📁</span>
