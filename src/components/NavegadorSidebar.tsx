@@ -17,6 +17,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
 
 interface PasoEtapa {
   id: string;
@@ -45,6 +46,7 @@ export default function NavegadorSidebar({
   tituloCotizacion,
   onClickEtapa,
 }: NavegadorSidebarProps) {
+  const { user, signOut } = useAuth();
   const [drawerAbierto, setDrawerAbierto] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const [seccionesExpandidas, setSeccionesExpandidas] = useState({
@@ -233,8 +235,19 @@ export default function NavegadorSidebar({
         </SeccionExplorer>
       </nav>
 
-      {/* Footer del sidebar */}
-      <div className="border-t border-gray-200 bg-white px-3 py-2">
+      {/* Footer del sidebar: usuario + logout + configuración */}
+      <div className="border-t border-gray-200 bg-white px-3 py-2 space-y-1">
+        {/* Email del usuario logueado */}
+        {user?.email && (
+          <div className="flex items-center gap-2 rounded px-2 py-1 text-[10px] text-gray-500">
+            <span>👤</span>
+            <span className="truncate font-medium text-gray-700" title={user.email}>
+              {user.email}
+            </span>
+          </div>
+        )}
+
+        {/* Configuración (placeholder Fase B+) */}
         <button
           disabled
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[11px] font-medium text-gray-700 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-70"
@@ -246,6 +259,20 @@ export default function NavegadorSidebar({
             próx.
           </span>
         </button>
+
+        {/* Cerrar sesión */}
+        {user && (
+          <button
+            onClick={() => {
+              if (window.confirm("¿Cerrar sesión?")) signOut();
+            }}
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[11px] font-medium text-red-700 transition hover:bg-red-50"
+            title="Cerrar sesión"
+          >
+            <span>🚪</span>
+            <span>Cerrar sesión</span>
+          </button>
+        )}
       </div>
     </div>
   );

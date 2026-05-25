@@ -1,172 +1,163 @@
-# SESIÓN 05 — Inicio · Pendientes detallados — Rocatrol AI
+# SESIÓN 05 — CERRADA · Cómo retomar Sesión 06 — Rocatrol AI
 
-> **Fecha de cierre sesión 04:** 25-may-2026
-> **Estado final sesión 04:** ✅ Wizard funcional + sidebar Windows Explorer + catálogo profesional Eazima + Agente Intérprete v2 — todo pusheado a producción (commit `fad8c6f`).
-> **Cómo retomar:** abre Claude Code en `IA TRABAJO/`, di "Sigamos con Rocatrol AI sesión 05", lee este archivo + memoria.
-
----
-
-## 🎯 RESUMEN — Estado al cierre Sesión 04
-
-### Lo que está VIVO en producción (rocatrol.com)
-- ✅ `https://rocatrol.com/cotizar` con wizard completo Fase A
-- ✅ Sidebar Windows Explorer (lateral izquierda) con 3 secciones expandibles
-- ✅ 8 etapas del flujo profesional: Empresa → Cliente → Describes → Catálogo → Cuantificación → Precios → Vista previa → Enviar
-- ✅ Etapas pendientes con cinta "próx." naranja
-- ✅ Agente Intérprete v2 funcional con prompt caching + tool use + multimodal
-- ✅ Catálogo profesional estilo Eazima Group (bandas azules + Item/Description/Unit/Qty/Price/Amount + sticky header + numeración A.1/A.2)
-- ✅ Subtotales en $0.00 hasta que Preciador calcule
-- ✅ Botón + Concepto por partida + Nueva partida + borrar concepto/partida
-- ✅ Schema multi-tenant Supabase con RLS por tenant_id
-- ✅ Sistema de keys nuevo `sb_publishable_*` + `sb_secret_*`
-
-### Lo que NO está construido todavía (Fase B/C)
-- ❌ Pantalla "Empresa" (datos contratista + logo)
-- ❌ Pantalla "Cliente" (a quién va dirigida)
-- ❌ Auth Supabase email/password
-- ❌ Persistencia: guardar cotización en Supabase (hoy solo memoria del navegador)
-- ❌ Pantalla Cuantificación (Agente Cuantificador)
-- ❌ Pantalla Precios (Agente Preciador)
-- ❌ Vista previa profesional (cotización completa de 14+ páginas)
-- ❌ PDF generator bilingüe ES/EN
-- ❌ Enviar (email + WhatsApp + tablero)
-- ❌ Plantillas reutilizables (en sidebar, placeholder)
-- ❌ Lista "Mis cotizaciones" (en sidebar, placeholder)
-- ❌ Stripe billing
+> **Fecha cierre sesión 05:** 25-may-2026
+> **Estado:** ✅ MEJORA 1 + 2 deployadas. ⏳ FASE B Bloque 1 Auth Supabase local (NO pusheado, esperando que Julio aplique migration 0002 SQL).
+> **Cómo retomar sesión 06:** abre Claude Code en `IA TRABAJO/`, di "Sigamos con Rocatrol AI sesión 06", lee este archivo + memoria `project_rocatrol_ai.md`.
 
 ---
 
-## 🔥 PENDIENTES INMEDIATOS — Próxima sesión
+## 🎯 RESUMEN — Estado al cierre Sesión 05
 
-Julio pidió 3 mejoras al cierre que NO entraron en sesión 04. Orden recomendado:
+### Vivo en producción (rocatrol.com/cotizar)
+- ✅ Sidebar Windows 11 LIGHT con alto contraste + logo Rocatrol AI integrado
+- ✅ Fondo principal gris oscuro (#1f2937) en lugar de negro puro
+- ✅ Catálogo `max-w-5xl` con padding `lg:px-10`
+- ✅ Header tabla gris claro + textos en español (No / Descripción / Unidad / Cantidad / P. Unitario / Importe)
+- ✅ Modal **Buscador de Conceptos** con 102 conceptos en 5 especialidades (Pintura 32 + Drywall 20 + Concreto 20 + Plomería 15 + Eléctrico 15)
+- ✅ Agente Intérprete v2 (sesión 04) sigue funcionando
+- ✅ 8 etapas del flujo profesional con cinta "próx."
+- ✅ Schema multi-tenant Supabase + sistema sb_publishable_* / sb_secret_*
 
-### MEJORA 1 — Sidebar a color claro estilo Windows Explorer real (30 min)
-Actualmente el sidebar es dark (#1a1a1c). Julio quiere color claro tipo Windows 11 File Explorer:
-- Fondo blanco/gris muy claro (#f8f9fa o white)
-- Texto oscuro (gray-800)
-- Hover azul claro (bg-blue-50)
-- Activo: bg-amber-50 + border-l-2 border-amber-500
-- Header: bg-white border-b border-gray-200
-- Mantener badges "próx." en naranja
-- **Archivo a editar:** `src/components/NavegadorSidebar.tsx`
+### LOCAL pero NO en producción aún (FASE B Bloque 1 Auth)
 
-### MEJORA 2 — Buscador de conceptos al crear (con seed de 5 especialidades, ~100 conceptos) (~3h)
-Cuando el usuario hace click en "+ Concepto" dentro de una partida, abrir modal/dropdown con:
-- Filtros: partida actual (autorellena) + tipo de especialidad
-- Buscador en tiempo real que filtra conceptos seed
-- Click en concepto sugerido → se agrega a la partida
-- Opción "Crear nuevo desde cero" si no encuentra
+Archivos modificados/creados en esta sesión, pendientes de push:
+- `supabase/migrations/0002_auth_trigger.sql` — trigger SQL que auto-crea tenant al signup
+- `src/lib/auth-context.tsx` — AuthProvider + useAuth() hook
+- `src/app/layout.tsx` — envuelto con `<AuthProvider>`
+- `src/app/login/page.tsx` — login con logo izquierda + toggle eye + link recuperar
+- `src/app/signup/page.tsx` — signup con campo empresa + toggle eye
+- `src/app/reset-password/page.tsx` — recuperar/crear contraseña (2 modos)
+- `src/app/cotizar/page.tsx` — protegido con redirect a /login si no auth
+- `src/components/NavegadorSidebar.tsx` — footer con email + botón "🚪 Cerrar sesión"
 
-**Seed a crear** en `src/lib/conceptos_seed.ts`:
-- Pintura residencial (32 conceptos del ejemplo de Julio — recámara, 8 partidas)
-- Drywall / Tablaroca (~20 conceptos)
-- Concreto (~20 conceptos)
-- Plomería (~15 conceptos)
-- Eléctrico (~15 conceptos)
-
-Estructura sugerida:
-```ts
-export interface ConceptoSeed {
-  especialidad: 'pintura' | 'drywall' | 'concreto' | 'plomeria' | 'electrico';
-  partida_default: string;
-  descripcion_es: string;
-  unidad: string;
-  sinonimos?: string[]; // para búsqueda fuzzy
-}
-```
-
-**Después** en Fase C: migrar este seed a tabla `catalog_concepts` en Supabase con `tenant_id = NULL` (globales) + permitir que cada tenant agregue los suyos.
-
-### MEJORA 3 — Drag & drop con @dnd-kit/sortable (2-3h)
-Reordenar partidas + conceptos arrastrando, con recálculo automático de claves (A→B, A.1→B.1, etc.).
-
-**Instalación:**
-```bash
-npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
-```
-
-**Implementación:**
-- Wrap el `<tbody>` en `<DndContext>` + `<SortableContext>`
-- Cada `<tr>` envuelta en `useSortable()`
-- Soporte drag entre partidas (cambiar `partida` del concepto)
-- Soporte drag de banda azul = mover toda la partida
-- Touch support para mobile (auto con dnd-kit)
-- Después de drop: recalcular claves con `agruparPorPartida` (ya las recalcula porque usa orden de aparición)
+⚠️ **NO se hizo push** porque depende de que Julio aplique migration 0002 primero.
 
 ---
 
-## 🧠 Decisiones arquitectónicas confirmadas (NO re-debatir)
+## 🔥 PENDIENTES INMEDIATOS — Sesión 06
 
-| Decisión | Confirmada cuándo |
+### 🚨 ACCIÓN MANUAL DE JULIO (bloquea todo lo demás)
+
+**Aplicar migration 0002 SQL en Supabase**:
+
+1. Abrir https://supabase.com/dashboard/project/vsecxcavjuvucxziggkm/sql/new
+2. Abrir con Bloc de Notas: `rocatrol_IA/supabase/migrations/0002_auth_trigger.sql`
+3. Copiar TODO el contenido (Ctrl+A → Ctrl+C)
+4. Pegar en el SQL Editor de Supabase (Ctrl+V)
+5. Click "Run" o Ctrl+Enter
+6. Debe decir "Success. No rows returned"
+
+Sin esto, el signup falla al intentar crear tenant.
+
+### Después de aplicar SQL
+
+1. **Probar signup en localhost** (`http://localhost:3001/cotizar`):
+   - Debe redirigir a `/login`
+   - Click "Regístrate gratis"
+   - Llenar empresa + email + password
+   - Si Supabase pide confirmación email → click el link del correo
+   - Debe volver a `/cotizar` autenticado
+   - Verificar en Supabase Table Editor que se crearon entradas en `tenants` y `users_tenants`
+
+2. **Commit + push del bloque Auth** a producción (cuando validación local pase).
+
+3. **FASE B BLOQUE 2 — Quote autosave** (~2h):
+   - Hook `useQuoteAutosave` que sincroniza estado del wizard con tabla `quotes`
+   - Debounce 2 segundos
+   - Indicador "💾 Guardando / ✓ Guardado / ⚠️ Sin guardar" arriba a la derecha (estilo Google Docs)
+   - Guarda en columnas: `input_text`, `language`, `client_*`, `project_*`, `status='borrador'`, `ai_meta`
+   - Conceptos del catálogo van a tabla `quote_items` (relación 1:N)
+   - Test: cerrar navegador a mitad de cotización → reabrir → debe estar todo
+
+4. **FASE B BLOQUE 3 — Sidebar "Mis cotizaciones" real** (~1-2h):
+   - Reemplazar placeholder del sidebar con query real a `quotes` del tenant
+   - Lista ordenada por `updated_at DESC`
+   - Click en una cotización → carga en el wizard
+   - Iconos por estado: ⏳ borrador · ✉️ enviada · ✅ aprobada · ❌ rechazada
+   - Botón "+ Nueva cotización" arriba
+
+5. **FASE B Plantillas reutilizables** (prioridad confirmada por Julio):
+   - Marcar una cotización como plantilla (toggle "Guardar como plantilla")
+   - Sección "Plantillas" del sidebar muestra las marcadas
+   - Click en plantilla → crea NUEVA cotización con los conceptos pre-cargados
+   - Esto es lo "adictivo" del producto
+
+6. **MEJORA 3 drag&drop** (~3h, después de Fase B):
+   - `npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities`
+   - Integrar en `<tbody>` del catálogo
+   - Recalcular claves A.1/B.1 automático al drop (la función `agruparPorPartida` ya las calcula)
+   - Soporte touch mobile incluido
+
+---
+
+## 🧠 Decisiones acumuladas (NO re-debatir)
+
+| Decisión | Sesión |
 |---|---|
-| Wizard simple, NO ERP de 10 módulos | Sesión 03 |
-| SaaS por tiers $0/$29/$99/$299 (NO Productized Service $1,500) | Sesión 03 (research mercado) |
-| Target: contratistas hispanos pequeños (Tipo 1+3) + medianos industriales (Tipo 2, estilo Eazima) | Sesión 04 |
-| Stack: Next.js 15.5.18 + React 19 + Supabase + Anthropic SDK 0.96 | Sesión 02 |
-| Sistema keys nuevo `sb_publishable_*` + `sb_secret_*` (NO legacy JWT) | Sesión 04 |
-| 7 agentes de IA: Intérprete (✅) + Cuantificador + Preciador + Redactor + Traductor + Revisor + Asesor | Sesión 03 |
-| Motor 3 capas: Catálogo → Generador → TPU | Sesión 03 |
-| 8 etapas del flujo: Empresa → Cliente → Describes → Catálogo → Cuantificación → Precios → Vista previa → Enviar | Sesión 04 |
-| Estructura cotización 20 secciones estilo Eazima Group | Sesión 04 |
-| Iconos por categoría en catálogo, imágenes reales solo en Generador | Sesión 04 |
-| Conceptos = trabajos ejecutables. Materiales/MO/equipo = INSUMOS dentro del TPU (NO conceptos) | Sesión 04 |
-| Plantillas reutilizables = prioridad Fase B (retención "adictiva") | Sesión 04 |
-| Sidebar tipo Windows Explorer claro (NO dark) | Sesión 04 pendiente Fase A.7 |
+| Saltar Fase A localStorage → Fase B directo con auth+cloud | 05 |
+| Auth client-side SIN middleware (regla heredada Rocatrol ERP) | 05 |
+| Trigger SQL auto-crea tenant al signup (atomicidad) | 05 |
+| Login layout: logo IZQUIERDA grande + card derecha | 05 |
+| Toggle 👁️ en TODOS los campos password | 05 |
+| Indicador autosave: discreto arriba a la derecha (Google Docs style) | 05 |
+| Plantillas reutilizables = prioridad #1 Fase B (retención adictiva) | 05 |
+| Sidebar Windows 11 LIGHT (NO dark) | 05 |
+| Header tabla: gris claro + español + alineación pareja (NO inglés + oscuro) | 05 |
+| Logo grande en header sidebar con fondo negro full-width | 05 |
+| Fondo principal `#1f2937` (gray-800) — NO negro puro `#0f0f10` | 05 |
+| Catálogo `max-w-5xl` con padding `lg:px-10` | 05 |
+| 102 conceptos seed en 5 especialidades (no solo pintura) | 05 |
+| Conceptos vs Insumos TPU diferenciados en Intérprete v2 | 04 |
+| 8 etapas del flujo: Empresa → Cliente → Describes → Catálogo → Cuantificación → Precios → Vista previa → Enviar | 04 |
+| SaaS por tiers $0/$29/$99/$299 (NO Productized Service) | 03 |
+| Sistema keys nuevo sb_publishable_* / sb_secret_* (NO legacy JWT) | 04 |
 
 ---
 
-## 🚨 Lecciones críticas para NO repetir
+## 🚨 Lecciones críticas (NO repetir errores)
 
-1. **NUNCA leer .env.local sin avisar al usuario primero**. Si se necesita un valor, pedírselo. Ver `feedback_no_leer_env_local.md`. Incidente sesión 04: leí y expuse 3 keys reales en chat → tuvimos que rotar todo + migrar a sistema nuevo.
-
-2. **Documentación NUNCA debe tener keys completas** (aunque revocadas). GitHub Push Protection las detecta y bloquea. Enmascarar SIEMPRE con `xxxx...`. Lección sesión 02 + reforzada sesión 04.
-
-3. **Auditar el código real en `src/` ANTES de planear pantallas nuevas**. En sesión 04 descubrí que sesiones anteriores ya habían construido el Agente Intérprete y Pantalla 1 completos sin reflejar en memoria. Hacer `Glob src/**/*.{ts,tsx}` antes de proponer.
-
-4. **NO usar middleware de Next.js con Supabase Auth** (regla heredada de Rocatrol ERP, causa loops).
-
-5. **Bug OneDrive con `.next`**: siempre `rm -rf .next` antes de `npm run dev`.
-
-6. **Puerto Rocatrol AI = 3001** (NO 3000 como Rocatrol ERP).
-
-7. **Conceptos vs Insumos del TPU**: el Intérprete v1 los mezclaba. Versión v2 (esta sesión) los distingue. Si en futura sesión el Intérprete vuelve a poner "pintura blanca galón" como concepto en lugar de "Aplicación de primera mano", el prompt v2 se está cacheando viejo — refrescar.
-
-8. **Nombres de Supabase API keys**: solo `lowercase + underscore + números`. NO guion medio. Ejemplo: `rocatrol_ai_publishable`.
-
-9. **Antes de re-empezar a construir UI**: validar siempre con Julio screenshot del resultado actual. Sesión 04 acumuló muchos cambios sin validar intermedio = riesgo de retrabajar.
-
-10. **El Agente Intérprete tarda ~30-40 segundos** la primera vez. Mostrar loader vistoso (ya está).
+1. **ESLint `@next/next/no-html-link-for-pages`**: usar `<Link>` de `next/link` para rutas internas, NO `<a href="/...">`. Dev compila bien, Vercel build PRODUCTION falla.
+2. **GitHub Push Protection reincidente**: enmascarar SIEMPRE keys en `.md` con `xxxx...` aunque estén revocadas.
+3. **Cache navegador es el bug #1 del usuario**: cuando dice "no veo el cambio", pedir `Ctrl+Shift+R` (no Ctrl+R).
+4. **NUNCA leer `.env.local` sin avisar** (regla `feedback_no_leer_env_local`).
+5. **Trigger SQL para auto-crear tenant**: patrón `SECURITY DEFINER` + `set search_path = public`.
+6. **Logo claro vs oscuro**: si el logo tiene fondo oscuro, NO ponerlo sobre sidebar claro (se ve pegote). Header del sidebar con fondo oscuro full-width donde vive el logo, resto del sidebar claro.
+7. **Toggle 👁️ ver password**: feature básica esperada 2026, implementar de entrada.
 
 ---
 
-## 📁 Archivos clave para retomar
+## 📂 Archivos clave para retomar
 
 | Archivo | Para qué |
 |---|---|
 | `CLAUDE.md` | Stack + reglas técnicas + modelo de negocio |
-| `SESION_04_ESTADO.md` | Bitácora sesión 04 (incidente credenciales + migración sb_keys) |
-| `SESION_05_INICIO.md` | **Este archivo** (cómo retomar + pendientes) |
+| `SESION_05_INICIO.md` | **Este archivo** (cierre + cómo retomar 06) |
 | `PROCESO_COTIZACION.md` | ⭐ Documento maestro del producto (16 secciones) |
 | `ANALISIS_MERCADO_2026.md` | Research mercado + modelo SaaS confirmado |
-| `src/app/cotizar/page.tsx` | Pantalla principal del wizard (~900 líneas) |
-| `src/components/NavegadorSidebar.tsx` | Sidebar Windows Explorer (Fase B: cambiar a claro) |
-| `src/lib/agentes/interprete.ts` | Agente Intérprete v2 con prompt actualizado |
-| `src/app/api/interpretar/route.ts` | Endpoint API del Intérprete |
-| `supabase/migrations/0001_schema_inicial.sql` | Schema 13 tablas (aplicado en Supabase ✅) |
-| `~/.claude/skills/rocatrol-ai-builder/SKILL.md` | Skill actualizada con todas las lecciones |
+| `src/app/cotizar/page.tsx` | Wizard principal con protección auth (~960 líneas) |
+| `src/lib/conceptos_seed.ts` | 102 conceptos en 5 especialidades |
+| `src/components/BuscadorConceptos.tsx` | Modal buscador con filtros |
+| `src/components/NavegadorSidebar.tsx` | Sidebar Windows 11 light + logo + logout |
+| `src/lib/auth-context.tsx` | AuthProvider + useAuth() hook |
+| `src/app/login/page.tsx` | Login layout 2-columnas + toggle eye |
+| `src/app/signup/page.tsx` | Signup con campo empresa |
+| `src/app/reset-password/page.tsx` | Recuperar contraseña (2 modos) |
+| `supabase/migrations/0001_schema_inicial.sql` | Schema 13 tablas (aplicado) |
+| `supabase/migrations/0002_auth_trigger.sql` | **PENDIENTE APLICAR** |
+| `~/.claude/skills/rocatrol-ai-builder/SKILL.md` | Skill con todas las lecciones |
 | `~/.claude/.../memory/project_rocatrol_ai.md` | Memoria global del proyecto |
 
 ---
 
-## 💰 Costos acumulados al cierre Sesión 04
+## 💰 Costos acumulados al cierre Sesión 05
 
-| Concepto | Costo | Notas |
-|---|---|---|
-| Dominio rocatrol.com | $26.66 (2 años) | Namecheap |
-| Supabase Pro MICRO | $10/mes | Activo desde sesión 02 |
-| Vercel Hobby | $0/mes | Pasar a Pro $20 antes del primer cliente |
-| Anthropic API (sesión 04) | <$0.10 | Pocas llamadas — todo en localhost |
-| **Total acumulado** | **~$27 único + $10/mes** | |
+| Concepto | Costo |
+|---|---|
+| Dominio rocatrol.com | $26.66 (único, 2 años) |
+| Supabase Pro MICRO | $10/mes |
+| Vercel Hobby | $0/mes |
+| Anthropic API sesión 05 | <$0.50 |
+| **Total acumulado** | **~$28 único + $10/mes** |
 
 ---
 
@@ -176,16 +167,17 @@ npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
 - Repo: https://github.com/spijhv-bit/rocatrol-ai (privado)
 - Vercel: https://vercel.com/dashboard
 - Supabase: https://supabase.com/dashboard/project/vsecxcavjuvucxziggkm
+- Supabase SQL Editor: https://supabase.com/dashboard/project/vsecxcavjuvucxziggkm/sql/new
 - Anthropic Console: https://console.anthropic.com/settings/keys
 
 ---
 
-## 🎬 Cómo arrancar sesión 05
+## 🎬 Cómo arrancar sesión 06
 
-1. Abre Claude Code en `c:\Users\spijh\OneDrive - Roca Globla builders llc\IA TRABAJO\` (la carpeta padre)
+1. Abre Claude Code en `c:\Users\spijh\OneDrive - Roca Globla builders llc\IA TRABAJO\` (carpeta padre)
 2. Primer mensaje:
 
-   > **"Sigamos con Rocatrol AI sesión 05. Lee primero `rocatrol_IA/SESION_05_INICIO.md` y la memoria `project_rocatrol_ai.md`. Después salúdame por voz Sabina e indica los 3 pendientes inmediatos (sidebar claro / buscador conceptos / drag&drop) — no codees nada hasta que confirme."**
+   > **"Sigamos con Rocatrol AI sesión 06. Lee `rocatrol_IA/SESION_05_INICIO.md` y la memoria `project_rocatrol_ai.md`. Salúdame por voz Sabina, dime si ya aplique la migration 0002 SQL (si no, recuérdame los pasos), y los próximos 3 pasos concretos. NO codees nada hasta que confirme."**
 
 3. Claude leerá todo el contexto y arrancará exactamente desde donde dejamos.
 

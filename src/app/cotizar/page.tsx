@@ -6,10 +6,11 @@
 // El Agente Intérprete propone el catálogo de conceptos, editable e iterativo.
 // ============================================================================
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
+import { useAuth } from "@/lib/auth-context";
 import type {
   InterpretacionResponse,
   ConceptoPropuesto,
@@ -158,6 +159,14 @@ function leerArchivo(file: File): Promise<string> {
 }
 
 export default function CotizarPage() {
+  // Auth: si no hay sesión, redirige a /login (regla: window.location, NO router)
+  const { session, loading: authLoading } = useAuth();
+  useEffect(() => {
+    if (!authLoading && !session) {
+      window.location.href = "/login";
+    }
+  }, [session, authLoading]);
+
   const [descripcion, setDescripcion] = useState("");
   const [archivos, setArchivos] = useState<ArchivoInput[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -362,6 +371,21 @@ export default function CotizarPage() {
   const etapaActualId = resultado ? "catalogo" : "descripcion";
   const etapasCompletadasIds = resultado ? ["descripcion"] : [];
   const tituloCotizacion = resultado ? resultado.resumen : "Nueva cotización";
+
+  // Early return: mientras carga auth, mostrar loader; sin sesión, nada (redirige)
+  if (authLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#1f2937]">
+        <div className="flex items-center gap-3 text-white/70">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-roca-gold border-t-transparent" />
+          Cargando…
+        </div>
+      </main>
+    );
+  }
+  if (!session) {
+    return null; // redirección a /login está en curso
+  }
 
   return (
     <div className="flex min-h-screen bg-[#1f2937]">
