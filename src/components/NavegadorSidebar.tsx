@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { useState } from "react";
+import Link from "next/link";
 
 interface PasoEtapa {
   id: string;
@@ -56,10 +57,10 @@ export default function NavegadorSidebar({
     <div className="flex h-full flex-col bg-[#1a1a1c] text-sm">
       {/* Header del sidebar */}
       <div className="flex items-center justify-between border-b border-white/10 bg-[#0f0f10] px-3 py-3">
-        <a href="/" className="flex items-center gap-2 text-roca-gold transition hover:text-roca-gold-soft">
+        <Link href="/" className="flex items-center gap-2 text-roca-gold transition hover:text-roca-gold-soft">
           <span className="text-lg">📋</span>
           <span className="font-bold">Rocatrol AI</span>
-        </a>
+        </Link>
         {/* Botón cerrar solo en mobile */}
         <button
           onClick={() => setDrawerAbierto(false)}
