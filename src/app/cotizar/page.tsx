@@ -8,12 +8,27 @@
 
 import { Fragment, useState } from "react";
 import NavegadorSidebar from "@/components/NavegadorSidebar";
+import BuscadorConceptos from "@/components/BuscadorConceptos";
+import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import type {
   InterpretacionResponse,
   ConceptoPropuesto,
   ArchivoInput,
   RespuestaPregunta,
 } from "@/lib/agentes/interprete";
+
+// Mapea el tipo_obra que devuelve el Intérprete a una especialidad del seed.
+// Sirve para autoseleccionar el filtro del Buscador de Conceptos.
+function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | undefined {
+  if (!tipoObra) return undefined;
+  const t = tipoObra.toLowerCase();
+  if (t.includes("pintur")) return "pintura";
+  if (t.includes("drywall") || t.includes("tablar")) return "drywall";
+  if (t.includes("concreto") || t.includes("cement") || t.includes("losa")) return "concreto";
+  if (t.includes("plomer") || t.includes("agua") || t.includes("drena")) return "plomeria";
+  if (t.includes("eléctr") || t.includes("electr")) return "electrico";
+  return undefined;
+}
 
 const EJEMPLOS = [
   "Voy a pintar una recámara de 12 por 12 pies, con techo de 9 pies de alto. Dos manos de pintura. La pared tiene unos raspones que hay que resanar. El cliente pone la pintura.",
@@ -153,6 +168,11 @@ export default function CotizarPage() {
   // Acumulado de preguntas que el Intérprete YA hizo. Se envía en cada llamada
   // para que no las repita (instrucción del prompt v2 del Intérprete).
   const [preguntasPrevias, setPreguntasPrevias] = useState<string[]>([]);
+  // Estado del modal Buscador de Conceptos: { abierto, partida desde donde se invocó }
+  const [buscador, setBuscador] = useState<{ abierto: boolean; partida: string }>({
+    abierto: false,
+    partida: "",
+  });
 
   // --- Archivos -----------------------------------------------------------
   async function onSelectFiles(files: FileList) {
@@ -273,11 +293,16 @@ export default function CotizarPage() {
     ]);
   }
 
-  // Inserta un concepto NUEVO al final de la partida indicada (botón "+ Agregar"
-  // que vive dentro de la banda azul de cada partida).
-  function agregarConceptoEnPartida(partida: string) {
+  // Abre el modal Buscador de Conceptos para que el usuario busque uno del banco
+  // o cree uno vacío. Reemplaza al "agregar vacío directo" anterior.
+  function abrirBuscador(partida: string) {
+    setBuscador({ abierto: true, partida });
+  }
+
+  // Inserta un concepto vacío al final de la partida (usado por el botón
+  // "Crear desde cero" del modal).
+  function agregarConceptoVacioEnPartida(partida: string) {
     setConceptos((prev) => {
-      // Última posición donde aparece esta partida.
       let lastIdx = -1;
       prev.forEach((c, i) => {
         if ((c.partida || "Sin partida").trim() === partida) lastIdx = i;
@@ -289,6 +314,29 @@ export default function CotizarPage() {
         unidad: "lote",
         cantidad_estimada: 1,
         confianza: 1,
+      };
+      const insertAt = lastIdx >= 0 ? lastIdx + 1 : prev.length;
+      const arr = [...prev];
+      arr.splice(insertAt, 0, nuevo);
+      return arr;
+    });
+  }
+
+  // Inserta un concepto desde el banco seed (con descripción + unidad prellenadas).
+  function agregarConceptoDesdeSeed(partida: string, seed: ConceptoSeed) {
+    setConceptos((prev) => {
+      let lastIdx = -1;
+      prev.forEach((c, i) => {
+        if ((c.partida || "Sin partida").trim() === partida) lastIdx = i;
+      });
+      const nuevo: ConceptoPropuesto = {
+        clave: String(prev.length + 1).padStart(2, "0"),
+        partida,
+        descripcion_es: seed.descripcion_es,
+        unidad: seed.unidad,
+        cantidad_estimada: 1,
+        confianza: 1,
+        nota: `Sugerido del catálogo (${seed.especialidad})`,
       };
       const insertAt = lastIdx >= 0 ? lastIdx + 1 : prev.length;
       const arr = [...prev];
@@ -550,34 +598,30 @@ export default function CotizarPage() {
               </div>
 
               {/* Tabla profesional con header FIJO (sticky) al scrollear */}
+              {/* Header en español (versión interna). Al exportar PDF se traducirá ES/EN */}
               <div className="overflow-x-auto overflow-y-auto" style={{ maxHeight: "65vh" }}>
                 <table className="w-full text-xs border-separate border-spacing-0">
-                  {/* Encabezados de columna FIJOS — sticky top:0 z-20 + bg sólido para tapar */}
                   <thead>
                     <tr>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm w-[60px] border-b-2 border-[#0f172a]">
-                        ITEM No.
+                      <th className="sticky top-0 z-20 bg-gray-200 px-2 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm w-[60px] border-b-2 border-gray-400">
+                        No.
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-3 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm border-b-2 border-[#0f172a]">
-                        DESCRIPTION
+                      <th className="sticky top-0 z-20 bg-gray-200 px-3 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm border-b-2 border-gray-400">
+                        Descripción
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm w-[55px] border-b-2 border-[#0f172a]">
-                        UNIT
+                      <th className="sticky top-0 z-20 bg-gray-200 px-2 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm w-[60px] border-b-2 border-gray-400">
+                        Unidad
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm w-[70px] border-b-2 border-[#0f172a]">
-                        QTY
+                      <th className="sticky top-0 z-20 bg-gray-200 px-2 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm w-[80px] border-b-2 border-gray-400">
+                        Cantidad
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm w-[100px] border-b-2 border-[#0f172a]">
-                        UNIT PRICE
-                        <br />
-                        <span className="text-[8px] font-normal normal-case text-gray-300">(USD)</span>
+                      <th className="sticky top-0 z-20 bg-gray-200 px-2 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm w-[110px] border-b-2 border-gray-400">
+                        P. Unitario <span className="font-normal normal-case text-gray-500">(USD)</span>
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] px-2 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-white shadow-sm w-[110px] border-b-2 border-[#0f172a]">
-                        AMOUNT
-                        <br />
-                        <span className="text-[8px] font-normal normal-case text-gray-300">(USD)</span>
+                      <th className="sticky top-0 z-20 bg-gray-200 px-2 py-3 text-center align-middle text-[10px] font-bold uppercase tracking-wider text-gray-700 shadow-sm w-[120px] border-b-2 border-gray-400">
+                        Importe <span className="font-normal normal-case text-gray-500">(USD)</span>
                       </th>
-                      <th className="sticky top-0 z-20 bg-[#1f2937] w-[28px] border-b-2 border-[#0f172a]"></th>
+                      <th className="sticky top-0 z-20 bg-gray-200 w-[28px] border-b-2 border-gray-400"></th>
                     </tr>
                   </thead>
 
@@ -606,8 +650,8 @@ export default function CotizarPage() {
                                 className="flex-1 rounded border-0 bg-transparent px-1 py-0.5 text-sm font-bold uppercase tracking-wide text-white placeholder:text-blue-200/60 focus:bg-white/10 focus:outline-none focus:ring-1 focus:ring-white/40"
                               />
                               <button
-                                onClick={() => agregarConceptoEnPartida(grupo.partida)}
-                                title="Agregar concepto a esta partida"
+                                onClick={() => abrirBuscador(grupo.partida)}
+                                title="Buscar y agregar concepto a esta partida"
                                 className="flex items-center gap-1 rounded bg-white/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition hover:bg-white/25"
                               >
                                 + Concepto
@@ -936,6 +980,22 @@ export default function CotizarPage() {
         )}
         </div>
       </main>
+
+      {/* Modal Buscador de Conceptos (Mejora 2 sesión 05) */}
+      <BuscadorConceptos
+        abierto={buscador.abierto}
+        partidaActual={buscador.partida}
+        especialidadSugerida={inferirEspecialidad(resultado?.tipo_obra)}
+        onCerrar={() => setBuscador({ abierto: false, partida: "" })}
+        onElegir={(seed) => {
+          agregarConceptoDesdeSeed(buscador.partida, seed);
+          setBuscador({ abierto: false, partida: "" });
+        }}
+        onCrearVacio={() => {
+          agregarConceptoVacioEnPartida(buscador.partida);
+          setBuscador({ abierto: false, partida: "" });
+        }}
+      />
     </div>
   );
 }
