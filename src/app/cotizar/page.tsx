@@ -6,13 +6,15 @@
 // El Agente Intérprete propone el catálogo de conceptos, editable e iterativo.
 // ============================================================================
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
 import CabeceraCotizacion from "@/components/CabeceraCotizacion";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import { useAuth } from "@/lib/auth-context";
 import { useQuoteAutosave } from "@/lib/hooks/useQuoteAutosave";
+import { useMisCotizaciones } from "@/lib/hooks/useMisCotizaciones";
+import { supabase } from "@/lib/supabase";
 import type {
   InterpretacionResponse,
   ConceptoPropuesto,
@@ -175,6 +177,15 @@ export default function CotizarPage() {
   const autosave = useQuoteAutosave(session);
   const [nombre, setNombre] = useState("");
 
+  // Lista de cotizaciones del tenant (para el sidebar). Se refresca cada vez
+  // que el autosave registra un savedAt nuevo, así aparece la nueva sin F5.
+  const versionLista = autosave.savedAt ? autosave.savedAt.getTime() : 0;
+  const misCotizaciones = useMisCotizaciones(session, versionLista);
+
+  // Ref para suprimir el autosave de conceptos durante una carga inicial
+  // (evita re-guardar los mismos conceptos que acabamos de leer de la BD)
+  const cargandoCotizacionRef = useRef(false);
+
   const [descripcion, setDescripcion] = useState("");
   const [archivos, setArchivos] = useState<ArchivoInput[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -192,13 +203,159 @@ export default function CotizarPage() {
   });
 
   // Sincronizar conceptos editables con la nube (debounce 2s, espera a tener quoteId).
-  // El hook se encarga de no enviar nada si no hay cotización creada todavía.
+  // Si estamos cargando una cotización del sidebar, NO re-guardamos lo que
+  // acabamos de leer (sería un round-trip inútil DELETE+INSERT idéntico).
   useEffect(() => {
     if (conceptos.length === 0) return;
+    if (cargandoCotizacionRef.current) {
+      cargandoCotizacionRef.current = false;
+      return;
+    }
     autosave.updateConceptos(conceptos);
     // No incluyo `autosave` en deps porque sus funciones son estables via useCallback
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conceptos]);
+
+  // -------------------------------------------------------------------------
+  // CARGAR cotización existente (click desde el sidebar o ?id=xxx en URL)
+  // -------------------------------------------------------------------------
+  const cargarCotizacion = useCallback(async (quoteId: string) => {
+    try {
+      cargandoCotizacionRef.current = true;
+      const { data: quote, error: qErr } = await supabase
+        .from("quotes")
+        .select("id, folio, name, input_text, language, status, ai_meta")
+        .eq("id", quoteId)
+        .maybeSingle();
+      if (qErr) throw qErr;
+      if (!quote) return;
+
+      const { data: items, error: iErr } = await supabase
+        .from("quote_items")
+        .select("clave, partida, description_es, unit, quantity, ai_confidence, sort_order")
+        .eq("quote_id", quoteId)
+        .order("sort_order", { ascending: true });
+      if (iErr) throw iErr;
+
+      // Marca el quote como existente en el autosave (futuros updates = UPDATE)
+      autosave.cargar(quote.id, quote.folio);
+
+      // Hidratar state del wizard con lo leído
+      setNombre(quote.name ?? "");
+      setDescripcion(quote.input_text ?? "");
+      setArchivos([]);
+      setRespuestas({});
+      setPreguntasPrevias([]);
+      setError(null);
+
+      const meta = (quote.ai_meta ?? {}) as Record<string, unknown>;
+      const conceptosCargados: ConceptoPropuesto[] = (items ?? []).map((it) => ({
+        clave: it.clave ?? "",
+        partida: it.partida ?? "",
+        descripcion_es: it.description_es ?? "",
+        unidad: it.unit ?? "lote",
+        cantidad_estimada: Number(it.quantity ?? 0),
+        confianza: Number(it.ai_confidence ?? 1),
+      }));
+      setConceptos(conceptosCargados);
+
+      // Reconstruir un `resultado` parcial para que el wizard muestre la vista
+      // "ya hay catálogo" en lugar de la pantalla inicial. Las preguntas no
+      // persisten (es estado efímero del Intérprete), por eso quedan vacías.
+      if (conceptosCargados.length > 0) {
+        setResultado({
+          resumen: (meta.resumen as string) || quote.name || "Cotización",
+          tipo_obra: (meta.tipo_obra as string) || "general",
+          confianza_global: Number(meta.confianza_global ?? 1),
+          conceptos: conceptosCargados,
+          preguntas: [],
+          meta: {
+            modelo: (meta.modelo as string) || "",
+            costo_usd: Number(meta.costo_usd ?? 0),
+          },
+        });
+      } else {
+        setResultado(null);
+      }
+
+      // Reflejar el id en la URL (sin recargar)
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("id", quoteId);
+        window.history.replaceState(null, "", url.toString());
+      }
+    } catch (err) {
+      cargandoCotizacionRef.current = false;
+      setError(err instanceof Error ? err.message : "No se pudo cargar la cotización.");
+    }
+  }, [autosave]);
+
+  // -------------------------------------------------------------------------
+  // BORRAR cotización (con cascada a quote_items por la FK on delete cascade)
+  // -------------------------------------------------------------------------
+  const borrarCotizacion = useCallback(
+    async (id: string) => {
+      try {
+        const { error: delErr } = await supabase.from("quotes").delete().eq("id", id);
+        if (delErr) throw delErr;
+        // Si era la cotización activa, limpiar el wizard
+        if (autosave.quoteId === id) {
+          autosave.reset();
+          setNombre("");
+          setDescripcion("");
+          setArchivos([]);
+          setConceptos([]);
+          setResultado(null);
+          setRespuestas({});
+          setPreguntasPrevias([]);
+          if (typeof window !== "undefined") {
+            const url = new URL(window.location.href);
+            url.searchParams.delete("id");
+            window.history.replaceState(null, "", url.toString());
+          }
+        }
+        misCotizaciones.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? `No se pudo borrar la cotización: ${err.message}`
+            : "No se pudo borrar la cotización."
+        );
+      }
+    },
+    [autosave, misCotizaciones]
+  );
+
+  // -------------------------------------------------------------------------
+  // NUEVA cotización (limpia todo el estado)
+  // -------------------------------------------------------------------------
+  const nuevaCotizacion = useCallback(() => {
+    autosave.reset();
+    setNombre("");
+    setDescripcion("");
+    setArchivos([]);
+    setConceptos([]);
+    setResultado(null);
+    setRespuestas({});
+    setPreguntasPrevias([]);
+    setError(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("id");
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [autosave]);
+
+  // Al montar: si la URL trae ?id=xxx, cargar esa cotización
+  useEffect(() => {
+    if (!session || authLoading) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (id) cargarCotizacion(id);
+    // Solo al montar / al obtener sesión la primera vez
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, authLoading]);
 
   // --- Archivos -----------------------------------------------------------
   async function onSelectFiles(files: FileList) {
@@ -428,6 +585,12 @@ export default function CotizarPage() {
         etapasCompletadas={etapasCompletadasIds}
         etapas={ETAPAS}
         tituloCotizacion={tituloCotizacion}
+        cotizaciones={misCotizaciones.cotizaciones}
+        cotizacionActivaId={autosave.quoteId}
+        cotizacionesLoading={misCotizaciones.loading}
+        onAbrirCotizacion={cargarCotizacion}
+        onNuevaCotizacion={nuevaCotizacion}
+        onBorrarCotizacion={borrarCotizacion}
       />
 
       {/* Contenido principal — más amplio para que el catálogo respire */}
@@ -453,7 +616,9 @@ export default function CotizarPage() {
               const activo = i === idxActual;
               const enConstruccion = e.pendienteBuild; // pantalla aún NO desarrollada
 
-              // Estilo del círculo según estado
+              // Estilo del círculo según estado.
+              // Fondo blanco SIEMPRE (excepto activo dorado) para que los iconos
+              // resalten sobre el fondo gris oscuro del wizard.
               let circleClass = "";
               let labelClass = "";
               let badge: string | null = null;
@@ -461,15 +626,15 @@ export default function CotizarPage() {
                 circleClass = "scale-110 bg-roca-gold text-roca-dark shadow-lg shadow-roca-gold/40";
                 labelClass = "font-semibold text-roca-gold";
               } else if (completado) {
-                circleClass = "border border-green-400/40 bg-green-500/15 text-green-400";
-                labelClass = "text-green-400";
+                circleClass = "border-2 border-green-500 bg-white text-green-600 shadow-sm";
+                labelClass = "font-semibold text-green-400";
               } else if (enConstruccion) {
-                circleClass = "border border-amber-400/30 bg-amber-500/5 text-amber-300/60";
-                labelClass = "text-amber-300/60";
+                circleClass = "border-2 border-amber-400 bg-white text-amber-600 shadow-sm";
+                labelClass = "text-amber-300/70";
                 badge = "próx.";
               } else {
-                circleClass = "border border-white/10 bg-white/5 text-white/30";
-                labelClass = "text-white/30";
+                circleClass = "border-2 border-gray-300 bg-white text-gray-700 shadow-sm";
+                labelClass = "text-white/40";
               }
 
               const tooltipTexto = enConstruccion
@@ -528,16 +693,16 @@ export default function CotizarPage() {
             </p>
           </>
         ) : (
-          <div className="rounded-xl border border-roca-gold/30 bg-gradient-to-br from-roca-gold/10 to-transparent p-4">
-            <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-roca-gold/70">
+          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-md text-gray-900">
+            <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-roca-gold-soft">
               <span>📑</span>
               <span>Título de la cotización</span>
             </div>
-            <h1 className="text-xl font-bold leading-snug sm:text-2xl">
+            <h1 className="text-xl font-bold leading-snug text-gray-900 sm:text-2xl">
               {resultado.resumen}
             </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/60">
-              <span className="rounded-full bg-roca-gold/15 px-2 py-0.5 font-medium uppercase text-roca-gold">
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+              <span className="rounded-full bg-roca-gold/15 px-2 py-0.5 font-semibold uppercase text-roca-gold-soft">
                 {resultado.tipo_obra}
               </span>
               <span>·</span>
@@ -545,7 +710,7 @@ export default function CotizarPage() {
               <span>·</span>
               <button
                 onClick={() => setResultado(null)}
-                className="text-white/40 underline-offset-2 hover:text-roca-gold hover:underline"
+                className="text-gray-500 underline-offset-2 hover:text-roca-gold-soft hover:underline"
               >
                 Editar descripción
               </button>

@@ -35,6 +35,10 @@ export interface UseQuoteAutosaveResult {
   error: string | null;
   update: (patch: Partial<QuoteHeader>) => void;
   updateConceptos: (conceptos: ConceptoPropuesto[]) => void;
+  /** Marca que ya hay una cotización existente (futuros updates van por UPDATE). */
+  cargar: (id: string, folio: string | null) => void;
+  /** Limpia el estado para empezar una cotización nueva desde cero. */
+  reset: () => void;
 }
 
 const DEBOUNCE_MS = 2000;
@@ -178,6 +182,34 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
     [flushItems]
   );
 
+  // Marca el quote actual como "ya existente" (cargado del sidebar). Futuros
+  // updates harán UPDATE en lugar de INSERT.
+  const cargar = useCallback((id: string, folioCargado: string | null) => {
+    // Cancelar cualquier flush pendiente del quote anterior
+    if (headerTimerRef.current) clearTimeout(headerTimerRef.current);
+    if (itemsTimerRef.current) clearTimeout(itemsTimerRef.current);
+    pendingHeaderRef.current = {};
+    pendingItemsRef.current = null;
+    quoteIdRef.current = id;
+    setQuoteId(id);
+    setFolio(folioCargado);
+    setSavedAt(null);
+    setError(null);
+  }, []);
+
+  // Limpia todo el estado para arrancar una cotización nueva desde cero.
+  const reset = useCallback(() => {
+    if (headerTimerRef.current) clearTimeout(headerTimerRef.current);
+    if (itemsTimerRef.current) clearTimeout(itemsTimerRef.current);
+    pendingHeaderRef.current = {};
+    pendingItemsRef.current = null;
+    quoteIdRef.current = null;
+    setQuoteId(null);
+    setFolio(null);
+    setSavedAt(null);
+    setError(null);
+  }, []);
+
   // Cleanup al desmontar
   useEffect(() => {
     return () => {
@@ -187,5 +219,15 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
   }, []);
 
   const saving = savingHeader || savingItems;
-  return { quoteId, folio, saving, savedAt, error, update, updateConceptos };
+  return {
+    quoteId,
+    folio,
+    saving,
+    savedAt,
+    error,
+    update,
+    updateConceptos,
+    cargar,
+    reset,
+  };
 }

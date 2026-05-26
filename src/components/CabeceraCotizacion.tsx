@@ -57,7 +57,7 @@ export default function CabeceraCotizacion({
   });
 
   return (
-    <div className="mb-5 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+    <div className="mb-5 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-md text-gray-900">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-base" aria-hidden>
           📝
@@ -75,18 +75,18 @@ export default function CabeceraCotizacion({
             }}
             placeholder="Cotización sin nombre"
             maxLength={120}
-            className="flex-1 rounded border border-roca-gold/50 bg-white/10 px-2 py-1 text-base font-semibold text-white placeholder:text-white/30 focus:border-roca-gold focus:outline-none"
+            className="flex-1 rounded border border-roca-gold bg-roca-gold/5 px-2 py-1 text-base font-semibold text-gray-900 placeholder:text-gray-400 focus:border-roca-gold-soft focus:outline-none focus:ring-1 focus:ring-roca-gold"
           />
         ) : (
           <button
             onClick={() => setEditando(true)}
             title="Click para renombrar"
-            className="group flex flex-1 items-center gap-2 rounded px-1 py-1 text-left text-base font-semibold text-white hover:bg-white/5"
+            className="group flex flex-1 items-center gap-2 rounded px-1 py-1 text-left text-base font-semibold text-gray-900 hover:bg-gray-100"
           >
-            <span className={nombre ? "" : "italic text-white/40"}>
+            <span className={nombre ? "" : "italic text-gray-400"}>
               {nombre || "Cotización sin nombre"}
             </span>
-            <span className="text-[11px] text-white/25 opacity-0 transition group-hover:opacity-100">
+            <span className="text-[11px] text-gray-400 opacity-0 transition group-hover:opacity-100">
               ✏️ renombrar
             </span>
           </button>
@@ -95,13 +95,13 @@ export default function CabeceraCotizacion({
         <IndicadorAutosave saving={saving} savedAt={savedAt} error={error} />
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-white/45">
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
         {folio ? (
-          <span className="rounded bg-roca-gold/10 px-1.5 py-px font-mono font-semibold text-roca-gold/80">
+          <span className="rounded bg-roca-gold/15 px-1.5 py-px font-mono font-semibold text-roca-gold-soft">
             {folio}
           </span>
         ) : (
-          <span className="italic text-white/30">Folio: se asignará al primer guardado</span>
+          <span className="italic text-gray-400">Folio: se asignará al primer guardado</span>
         )}
         <span>·</span>
         <span>Borrador</span>

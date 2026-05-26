@@ -26,6 +26,14 @@ interface PasoEtapa {
   pendienteBuild: boolean;
 }
 
+export interface CotizacionItem {
+  id: string;
+  folio: string | null;
+  name: string | null;
+  status: string;
+  updated_at: string;
+}
+
 interface NavegadorSidebarProps {
   /** ID de la etapa actualmente activa (descripcion, catalogo, etc.) */
   etapaActual: string;
@@ -37,6 +45,37 @@ interface NavegadorSidebarProps {
   tituloCotizacion: string;
   /** Callback opcional cuando el usuario clickea una etapa */
   onClickEtapa?: (id: string) => void;
+  /** Lista de cotizaciones guardadas del usuario (Bloque 3) */
+  cotizaciones?: CotizacionItem[];
+  /** ID de la cotización abierta actualmente (para resaltarla en la lista) */
+  cotizacionActivaId?: string | null;
+  /** Cargando lista del servidor */
+  cotizacionesLoading?: boolean;
+  /** Callback al hacer click en una cotización de la lista */
+  onAbrirCotizacion?: (id: string) => void;
+  /** Callback al hacer click en "Nueva cotización" */
+  onNuevaCotizacion?: () => void;
+  /** Callback al hacer click en el icono de borrar */
+  onBorrarCotizacion?: (id: string, label: string) => void;
+}
+
+const ESTADO_INFO: Record<string, { icon: string; label: string; cls: string }> = {
+  borrador:   { icon: "⏳", label: "Borrador",   cls: "bg-gray-100 text-gray-700" },
+  generando:  { icon: "⚙️", label: "Generando",  cls: "bg-blue-100 text-blue-700" },
+  revision:   { icon: "👀", label: "Revisión",   cls: "bg-amber-100 text-amber-800" },
+  enviada:    { icon: "✉️", label: "Enviada",    cls: "bg-indigo-100 text-indigo-700" },
+  vista:      { icon: "👁️", label: "Vista",      cls: "bg-purple-100 text-purple-700" },
+  aprobada:   { icon: "✅", label: "Aprobada",   cls: "bg-green-100 text-green-700" },
+  rechazada:  { icon: "❌", label: "Rechazada",  cls: "bg-red-100 text-red-700" },
+};
+
+function formatoFechaCorto(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
 }
 
 export default function NavegadorSidebar({
@@ -45,6 +84,12 @@ export default function NavegadorSidebar({
   etapas,
   tituloCotizacion,
   onClickEtapa,
+  cotizaciones = [],
+  cotizacionActivaId = null,
+  cotizacionesLoading = false,
+  onAbrirCotizacion,
+  onNuevaCotizacion,
+  onBorrarCotizacion,
 }: NavegadorSidebarProps) {
   const { user, signOut } = useAuth();
   const [drawerAbierto, setDrawerAbierto] = useState(false);
@@ -113,18 +158,112 @@ export default function NavegadorSidebar({
         <SeccionExplorer
           icon="📁"
           titulo="Mis cotizaciones"
-          contador="0"
+          contador={String(cotizaciones.length)}
           expandida={seccionesExpandidas.cotizaciones}
           onToggle={() => toggleSeccion("cotizaciones")}
         >
-          <div className="px-3 py-3 text-center">
-            <p className="text-[11px] font-medium text-gray-700">
-              Aún no tienes cotizaciones guardadas.
-            </p>
-            <p className="mt-1 text-[10px] text-amber-800">
-              Cuando guardes tu primera, aparecerá aquí (Fase B)
-            </p>
-          </div>
+          {/* Botón + Nueva cotización */}
+          {onNuevaCotizacion && (
+            <div className="px-1.5 py-1.5">
+              <button
+                onClick={onNuevaCotizacion}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-roca-gold/60 bg-white px-2 py-1.5 text-[11px] font-semibold text-roca-gold-soft transition hover:bg-roca-gold/5 hover:border-roca-gold"
+                title="Crear una cotización nueva desde cero"
+              >
+                <span className="text-sm">➕</span>
+                Nueva cotización
+              </button>
+            </div>
+          )}
+
+          {cotizacionesLoading && cotizaciones.length === 0 ? (
+            <div className="px-3 py-3 text-center text-[10px] text-gray-500">
+              Cargando…
+            </div>
+          ) : cotizaciones.length === 0 ? (
+            <div className="px-3 py-2 text-center">
+              <p className="text-[11px] font-medium text-gray-700">
+                Aún no tienes cotizaciones guardadas.
+              </p>
+              <p className="mt-1 text-[10px] text-gray-500">
+                Crea la primera y aparecerá aquí.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-1 px-1 pb-1">
+              {cotizaciones.map((c) => {
+                const est = ESTADO_INFO[c.status] ?? ESTADO_INFO.borrador;
+                const activa = c.id === cotizacionActivaId;
+                const label = c.name?.trim() || "Cotización sin nombre";
+                return (
+                  <li
+                    key={c.id}
+                    className={`group relative rounded-md border transition ${
+                      activa
+                        ? "border-amber-400 bg-amber-50 shadow-sm"
+                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/50 hover:shadow-sm"
+                    }`}
+                  >
+                    <button
+                      onClick={() => onAbrirCotizacion?.(c.id)}
+                      title={`Abrir: ${label}`}
+                      className="flex w-full flex-col gap-1 px-2.5 py-2 pr-7 text-left"
+                    >
+                      {/* Línea 1: icono + nombre */}
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 flex-shrink-0 text-[14px]">📝</span>
+                        <span
+                          className={`flex-1 min-w-0 truncate text-[12.5px] leading-tight ${
+                            activa ? "font-bold text-amber-900" : "font-semibold text-gray-900"
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      </div>
+                      {/* Línea 2: folio · fecha · estado (sin wrap raro) */}
+                      <div className="flex items-center gap-1.5 pl-6 text-[10px] text-gray-500">
+                        {c.folio && (
+                          <span className="whitespace-nowrap font-mono font-medium text-gray-600">
+                            {c.folio}
+                          </span>
+                        )}
+                        {c.folio && <span>·</span>}
+                        <span className="whitespace-nowrap">{formatoFechaCorto(c.updated_at)}</span>
+                        <span
+                          className={`ml-auto whitespace-nowrap rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${est.cls}`}
+                          title={est.label}
+                        >
+                          {est.icon}
+                        </span>
+                      </div>
+                    </button>
+                    {/* Botón borrar: visible al hover, con confirm() antes de llamar */}
+                    {onBorrarCotizacion && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            window.confirm(
+                              `¿Eliminar la cotización "${label}"${
+                                c.folio ? ` (${c.folio})` : ""
+                              }?\n\nEsta acción NO se puede deshacer. Se borrarán también todos sus conceptos.`
+                            )
+                          ) {
+                            onBorrarCotizacion(c.id, label);
+                          }
+                        }}
+                        title="Eliminar esta cotización"
+                        aria-label="Eliminar cotización"
+                        className="absolute right-1 top-1 rounded p-1 text-gray-400 opacity-0 transition hover:bg-red-100 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </SeccionExplorer>
 
         {/* === SECCIÓN 2: COTIZACIÓN ACTIVA === */}
