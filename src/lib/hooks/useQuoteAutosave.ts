@@ -3,17 +3,21 @@
 // ============================================================================
 // HOOK useQuoteAutosave — Autoguardado de cotización con debounce de 2s
 //
-// Comportamiento:
-//   - Primer cambio → INSERT a `quotes` (trigger SQL asigna folio COT-YYYY-NNN)
-//   - Cambios siguientes → UPDATE con debounce 2s (consolida ráfagas)
-//   - Si no se llama a update(), NO se crea nada (no genera quotes vacías)
+// Persiste:
+//   - Header de la cotización: name, input_text, language, status, ai_meta
+//   - Conceptos del catálogo (quote_items) vía función SQL replace_quote_items
 //
-// Devuelve estado de guardado para que la UI muestre "💾 Guardando / ✓ Guardado".
+// Comportamiento:
+//   - Primer cambio del header → INSERT a `quotes` (trigger asigna folio)
+//   - Cambios siguientes → UPDATE con debounce 2s (consolida ráfagas)
+//   - Conceptos → debounce 2s, requiere que ya exista quoteId
+//   - Si no se llama a update/updateConceptos, NO se crea nada en BD
 // ============================================================================
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import type { ConceptoPropuesto } from "@/lib/agentes/interprete";
 
 export interface QuoteHeader {
   name?: string | null;
@@ -30,6 +34,7 @@ export interface UseQuoteAutosaveResult {
   savedAt: Date | null;
   error: string | null;
   update: (patch: Partial<QuoteHeader>) => void;
+  updateConceptos: (conceptos: ConceptoPropuesto[]) => void;
 }
 
 const DEBOUNCE_MS = 2000;
@@ -38,16 +43,19 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [folio, setFolio] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [savingHeader, setSavingHeader] = useState(false);
+  const [savingItems, setSavingItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Refs internas para evitar closures stale en el setTimeout
-  const pendingRef = useRef<Partial<QuoteHeader>>({});
+  // Refs internas (evitan closures stale en setTimeout)
+  const pendingHeaderRef = useRef<Partial<QuoteHeader>>({});
+  const pendingItemsRef = useRef<ConceptoPropuesto[] | null>(null);
   const tenantIdRef = useRef<string | null>(null);
   const quoteIdRef = useRef<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const headerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const itemsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cargar tenant_id del usuario logueado (lo usamos al hacer el primer INSERT)
+  // Cargar tenant_id del usuario logueado
   useEffect(() => {
     if (!session) {
       tenantIdRef.current = null;
@@ -73,19 +81,19 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
     };
   }, [session]);
 
-  const flush = useCallback(async () => {
+  // ----- Flush HEADER (insert/update sobre quotes) -----
+  const flushHeader = useCallback(async () => {
     if (!session) return;
     const tenant_id = tenantIdRef.current;
-    if (!tenant_id) return; // todavía no sabemos el tenant; reintentará al siguiente cambio
-    const patch = pendingRef.current;
-    pendingRef.current = {};
+    if (!tenant_id) return;
+    const patch = pendingHeaderRef.current;
+    pendingHeaderRef.current = {};
     if (Object.keys(patch).length === 0) return;
 
-    setSaving(true);
+    setSavingHeader(true);
     setError(null);
     try {
       if (!quoteIdRef.current) {
-        // Primer guardado: INSERT (el trigger SQL asigna folio automático)
         const insertPayload = {
           tenant_id,
           created_by: session.user.id,
@@ -110,32 +118,74 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
         if (updateError) throw updateError;
       }
       setSavedAt(new Date());
+      // Si quedaron conceptos pendientes esperando quoteId, intentar flush ahora
+      if (pendingItemsRef.current) {
+        // Cancelar timer y disparar inmediato
+        if (itemsTimerRef.current) clearTimeout(itemsTimerRef.current);
+        itemsTimerRef.current = setTimeout(() => flushItems(), 50);
+      }
     } catch (err) {
-      // Volver a pushear lo no guardado al pending para reintentar luego
-      pendingRef.current = { ...patch, ...pendingRef.current };
+      pendingHeaderRef.current = { ...patch, ...pendingHeaderRef.current };
       setError(err instanceof Error ? err.message : "No se pudo guardar.");
     } finally {
-      setSaving(false);
+      setSavingHeader(false);
     }
   }, [session]);
 
+  // ----- Flush ITEMS (reemplaza conceptos vía SQL) -----
+  const flushItems = useCallback(async () => {
+    if (!quoteIdRef.current) return; // espera a que exista la cotización
+    const conceptos = pendingItemsRef.current;
+    pendingItemsRef.current = null;
+    if (!conceptos) return;
+
+    setSavingItems(true);
+    setError(null);
+    try {
+      const { error: rpcError } = await supabase.rpc("replace_quote_items", {
+        p_quote_id: quoteIdRef.current,
+        p_items: conceptos,
+      });
+      if (rpcError) throw rpcError;
+      setSavedAt(new Date());
+    } catch (err) {
+      pendingItemsRef.current = conceptos;
+      setError(err instanceof Error ? err.message : "No se pudieron guardar los conceptos.");
+    } finally {
+      setSavingItems(false);
+    }
+  }, []);
+
   const update = useCallback(
     (patch: Partial<QuoteHeader>) => {
-      pendingRef.current = { ...pendingRef.current, ...patch };
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => {
-        flush();
+      pendingHeaderRef.current = { ...pendingHeaderRef.current, ...patch };
+      if (headerTimerRef.current) clearTimeout(headerTimerRef.current);
+      headerTimerRef.current = setTimeout(() => {
+        flushHeader();
       }, DEBOUNCE_MS);
     },
-    [flush]
+    [flushHeader]
+  );
+
+  const updateConceptos = useCallback(
+    (conceptos: ConceptoPropuesto[]) => {
+      pendingItemsRef.current = conceptos;
+      if (itemsTimerRef.current) clearTimeout(itemsTimerRef.current);
+      itemsTimerRef.current = setTimeout(() => {
+        flushItems();
+      }, DEBOUNCE_MS);
+    },
+    [flushItems]
   );
 
   // Cleanup al desmontar
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (headerTimerRef.current) clearTimeout(headerTimerRef.current);
+      if (itemsTimerRef.current) clearTimeout(itemsTimerRef.current);
     };
   }, []);
 
-  return { quoteId, folio, saving, savedAt, error, update };
+  const saving = savingHeader || savingItems;
+  return { quoteId, folio, saving, savedAt, error, update, updateConceptos };
 }

@@ -171,6 +171,7 @@ export default function CotizarPage() {
 
   // Autoguardado en la nube (debounce 2s). Si el usuario NO interactúa, no
   // crea nada. Al primer update() hace INSERT y obtiene folio del trigger SQL.
+  // updateConceptos sincroniza los items del catálogo en quote_items (RPC).
   const autosave = useQuoteAutosave(session);
   const [nombre, setNombre] = useState("");
 
@@ -189,6 +190,15 @@ export default function CotizarPage() {
     abierto: false,
     partida: "",
   });
+
+  // Sincronizar conceptos editables con la nube (debounce 2s, espera a tener quoteId).
+  // El hook se encarga de no enviar nada si no hay cotización creada todavía.
+  useEffect(() => {
+    if (conceptos.length === 0) return;
+    autosave.updateConceptos(conceptos);
+    // No incluyo `autosave` en deps porque sus funciones son estables via useCallback
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conceptos]);
 
   // --- Archivos -----------------------------------------------------------
   async function onSelectFiles(files: FileList) {
