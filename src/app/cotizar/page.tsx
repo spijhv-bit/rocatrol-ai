@@ -9,8 +9,10 @@
 import { Fragment, useEffect, useState } from "react";
 import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
+import CabeceraCotizacion from "@/components/CabeceraCotizacion";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import { useAuth } from "@/lib/auth-context";
+import { useQuoteAutosave } from "@/lib/hooks/useQuoteAutosave";
 import type {
   InterpretacionResponse,
   ConceptoPropuesto,
@@ -167,6 +169,11 @@ export default function CotizarPage() {
     }
   }, [session, authLoading]);
 
+  // Autoguardado en la nube (debounce 2s). Si el usuario NO interactúa, no
+  // crea nada. Al primer update() hace INSERT y obtiene folio del trigger SQL.
+  const autosave = useQuoteAutosave(session);
+  const [nombre, setNombre] = useState("");
+
   const [descripcion, setDescripcion] = useState("");
   const [archivos, setArchivos] = useState<ArchivoInput[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -229,6 +236,17 @@ export default function CotizarPage() {
       setPreguntasPrevias((prev) => {
         const todas = [...prev, ...preguntasNuevas, ...r.preguntas.map((q) => q.pregunta)];
         return Array.from(new Set(todas));
+      });
+      // Autoguardar la descripción + metadata del Intérprete a la nube
+      autosave.update({
+        input_text: descripcion,
+        ai_meta: {
+          resumen: r.resumen,
+          tipo_obra: r.tipo_obra,
+          confianza_global: r.confianza_global,
+          modelo: r.meta.modelo,
+          costo_usd: r.meta.costo_usd,
+        },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido.");
@@ -370,7 +388,12 @@ export default function CotizarPage() {
   // Etapa activa para sincronizar con el sidebar (los IDs deben coincidir con ETAPAS).
   const etapaActualId = resultado ? "catalogo" : "descripcion";
   const etapasCompletadasIds = resultado ? ["descripcion"] : [];
-  const tituloCotizacion = resultado ? resultado.resumen : "Nueva cotización";
+  // Prioridad del título visible en sidebar/breadcrumb:
+  //   1) el nombre que el usuario puso en la cabecera (lo más específico)
+  //   2) el resumen del Intérprete si ya hay conceptos
+  //   3) "Nueva cotización" por defecto
+  const tituloCotizacion =
+    nombre.trim() || (resultado ? resultado.resumen : "Nueva cotización");
 
   // Early return: mientras carga auth, mostrar loader; sin sesión, nada (redirige)
   if (authLoading) {
@@ -469,6 +492,19 @@ export default function CotizarPage() {
             })}
           </div>
         </nav>
+
+        {/* Cabecera de la cotización: nombre editable + folio + autosave */}
+        <CabeceraCotizacion
+          nombre={nombre}
+          folio={autosave.folio}
+          saving={autosave.saving}
+          savedAt={autosave.savedAt}
+          error={autosave.error}
+          onCambiarNombre={(nuevo) => {
+            setNombre(nuevo);
+            autosave.update({ name: nuevo });
+          }}
+        />
 
         {/* Título dinámico: pregunta inicial → resumen cuando hay catálogo */}
         {!resultado ? (
