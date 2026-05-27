@@ -17,6 +17,10 @@ interface Props {
   savedAt: Date | null;
   error: string | null;
   onCambiarNombre: (nombre: string) => void;
+  /** Si la cotización está marcada como plantilla reutilizable (Bloque 3B) */
+  isTemplate?: boolean;
+  /** Callback al togglear el estado de plantilla. Si no se pasa, no se muestra el toggle */
+  onToggleTemplate?: () => void;
 }
 
 export default function CabeceraCotizacion({
@@ -26,6 +30,8 @@ export default function CabeceraCotizacion({
   savedAt,
   error,
   onCambiarNombre,
+  isTemplate = false,
+  onToggleTemplate,
 }: Props) {
   const [editando, setEditando] = useState(false);
   const [borrador, setBorrador] = useState(nombre);
@@ -57,10 +63,22 @@ export default function CabeceraCotizacion({
   });
 
   return (
-    <div className="mb-5 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-md text-gray-900">
+    <div
+      className={`mb-5 rounded-xl border px-4 py-3 shadow-md text-gray-900 ${
+        isTemplate
+          ? "border-amber-400 bg-amber-50"
+          : "border-gray-200 bg-white"
+      }`}
+    >
+      {isTemplate && (
+        <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+          <span>⭐</span>
+          <span>Plantilla reutilizable</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-base" aria-hidden>
-          📝
+          {isTemplate ? "⭐" : "📝"}
         </span>
 
         {editando ? (
@@ -104,9 +122,27 @@ export default function CabeceraCotizacion({
           <span className="italic text-gray-400">Folio: se asignará al primer guardado</span>
         )}
         <span>·</span>
-        <span>Borrador</span>
+        <span>{isTemplate ? "Plantilla" : "Borrador"}</span>
         <span>·</span>
         <span>{hoy}</span>
+        {onToggleTemplate && folio && (
+          <button
+            onClick={onToggleTemplate}
+            title={
+              isTemplate
+                ? "Quitar marca de plantilla (volver a cotización normal)"
+                : "Guardar como plantilla reutilizable: la duplicas en 1 click para futuras cotizaciones similares"
+            }
+            className={`ml-auto flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold transition ${
+              isTemplate
+                ? "bg-amber-200 text-amber-900 hover:bg-amber-300"
+                : "border border-gray-300 bg-white text-gray-600 hover:border-amber-400 hover:bg-amber-50 hover:text-amber-700"
+            }`}
+          >
+            <span>{isTemplate ? "★" : "☆"}</span>
+            <span>{isTemplate ? "Es plantilla" : "Guardar como plantilla"}</span>
+          </button>
+        )}
       </div>
     </div>
   );

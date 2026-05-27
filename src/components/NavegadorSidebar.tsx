@@ -57,6 +57,10 @@ interface NavegadorSidebarProps {
   onNuevaCotizacion?: () => void;
   /** Callback al hacer click en el icono de borrar */
   onBorrarCotizacion?: (id: string, label: string) => void;
+  /** Lista de plantillas reutilizables (is_template=true) — Bloque 3B */
+  plantillas?: CotizacionItem[];
+  /** Callback al hacer click en una plantilla → crea cotización nueva con items copiados */
+  onClonarPlantilla?: (id: string, label: string) => void;
 }
 
 const ESTADO_INFO: Record<string, { icon: string; label: string; cls: string }> = {
@@ -90,6 +94,8 @@ export default function NavegadorSidebar({
   onAbrirCotizacion,
   onNuevaCotizacion,
   onBorrarCotizacion,
+  plantillas = [],
+  onClonarPlantilla,
 }: NavegadorSidebarProps) {
   const { user, signOut } = useAuth();
   const [drawerAbierto, setDrawerAbierto] = useState(false);
@@ -345,32 +351,81 @@ export default function NavegadorSidebar({
           </ul>
         </SeccionExplorer>
 
-        {/* === SECCIÓN 3: PLANTILLAS === */}
+        {/* === SECCIÓN 3: PLANTILLAS (Bloque 3B) === */}
         <SeccionExplorer
           icon="📚"
           titulo="Plantillas"
-          contador="0"
+          contador={String(plantillas.length)}
           expandida={seccionesExpandidas.plantillas}
           onToggle={() => toggleSeccion("plantillas")}
         >
-          <div className="px-3 py-3 text-center">
-            <p className="text-[11px] font-medium text-gray-700">Sin plantillas guardadas.</p>
-            <p className="mt-1 text-[10px] text-amber-800">
-              Guarda cotizaciones como plantilla para reusar (Fase B)
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-1 text-[10px] text-gray-700 font-medium">
-              {["🎨 Pintura", "🧱 Albañilería", "⚡ Eléctrico", "🔧 Plomería"].map(
-                (c) => (
-                  <div
-                    key={c}
-                    className="rounded border border-gray-300 bg-white px-1.5 py-1 truncate"
-                  >
-                    {c}
-                  </div>
-                )
-              )}
+          {plantillas.length === 0 ? (
+            <div className="px-3 py-3 text-center">
+              <p className="text-[11px] font-medium text-gray-700">
+                Aún no tienes plantillas.
+              </p>
+              <p className="mt-1 text-[10px] text-gray-500">
+                Marca una cotización con la estrella <strong className="text-amber-700">★</strong> para reusarla.
+              </p>
             </div>
-          </div>
+          ) : (
+            <ul className="space-y-1 px-1 pb-1">
+              {plantillas.map((p) => {
+                const label = p.name?.trim() || "Plantilla sin nombre";
+                return (
+                  <li
+                    key={p.id}
+                    className="group relative rounded-md border border-amber-300 bg-amber-50 transition hover:border-amber-500 hover:shadow-sm"
+                  >
+                    <button
+                      onClick={() => onClonarPlantilla?.(p.id, label)}
+                      title={`Crear nueva cotización desde la plantilla "${label}"`}
+                      className="flex w-full flex-col gap-1 px-2.5 py-2 pr-7 text-left"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className="mt-0.5 flex-shrink-0 text-[14px] text-amber-600">★</span>
+                        <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold leading-tight text-amber-900">
+                          {label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 pl-6 text-[10px] text-amber-800/80">
+                        {p.folio && (
+                          <span className="whitespace-nowrap font-mono font-medium">{p.folio}</span>
+                        )}
+                        {p.folio && <span>·</span>}
+                        <span className="whitespace-nowrap">
+                          {formatoFechaCorto(p.updated_at)}
+                        </span>
+                        <span className="ml-auto whitespace-nowrap rounded bg-amber-200 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-900">
+                          ➜ Duplicar
+                        </span>
+                      </div>
+                    </button>
+                    {onBorrarCotizacion && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (
+                            window.confirm(
+                              `¿Eliminar la plantilla "${label}"${
+                                p.folio ? ` (${p.folio})` : ""
+                              }?\n\nEsta acción NO se puede deshacer. Las cotizaciones que YA fueron creadas a partir de esta plantilla NO se ven afectadas.`
+                            )
+                          ) {
+                            onBorrarCotizacion(p.id, label);
+                          }
+                        }}
+                        title="Eliminar plantilla"
+                        className="absolute right-1 top-1 rounded p-1 text-amber-700/50 opacity-0 transition hover:bg-red-100 hover:text-red-600 group-hover:opacity-100 focus:opacity-100"
+                      >
+                        🗑
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </SeccionExplorer>
       </nav>
 

@@ -176,6 +176,9 @@ export default function CotizarPage() {
   // updateConceptos sincroniza los items del catálogo en quote_items (RPC).
   const autosave = useQuoteAutosave(session);
   const [nombre, setNombre] = useState("");
+  // Estado local del flag is_template (Bloque 3B). Se sincroniza al cargar
+  // una cotización existente y se persiste via autosave.update.
+  const [isTemplate, setIsTemplate] = useState(false);
 
   // Lista de cotizaciones del tenant (para el sidebar). Se refresca cada vez
   // que el autosave registra un savedAt nuevo, así aparece la nueva sin F5.
@@ -224,7 +227,7 @@ export default function CotizarPage() {
       cargandoCotizacionRef.current = true;
       const { data: quote, error: qErr } = await supabase
         .from("quotes")
-        .select("id, folio, name, input_text, language, status, ai_meta")
+        .select("id, folio, name, input_text, language, status, ai_meta, is_template")
         .eq("id", quoteId)
         .maybeSingle();
       if (qErr) throw qErr;
@@ -242,6 +245,7 @@ export default function CotizarPage() {
 
       // Hidratar state del wizard con lo leído
       setNombre(quote.name ?? "");
+      setIsTemplate(quote.is_template === true);
       setDescripcion(quote.input_text ?? "");
       setArchivos([]);
       setRespuestas({});
@@ -291,6 +295,42 @@ export default function CotizarPage() {
   }, [autosave]);
 
   // -------------------------------------------------------------------------
+  // TOGGLE plantilla (marca/desmarca is_template) — Bloque 3B
+  // -------------------------------------------------------------------------
+  const toggleTemplate = useCallback(() => {
+    setIsTemplate((prev) => {
+      const next = !prev;
+      autosave.update({ is_template: next });
+      return next;
+    });
+  }, [autosave]);
+
+  // -------------------------------------------------------------------------
+  // CLONAR plantilla → crea cotización nueva y la carga en el wizard
+  // -------------------------------------------------------------------------
+  const clonarPlantilla = useCallback(
+    async (templateId: string) => {
+      try {
+        const { data: newId, error: cErr } = await supabase.rpc(
+          "clone_quote_from_template",
+          { p_template_id: templateId }
+        );
+        if (cErr) throw cErr;
+        if (!newId) throw new Error("La función no devolvió un id de cotización.");
+        await cargarCotizacion(newId as string);
+        misCotizaciones.refresh();
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? `No se pudo duplicar la plantilla: ${err.message}`
+            : "No se pudo duplicar la plantilla."
+        );
+      }
+    },
+    [cargarCotizacion, misCotizaciones]
+  );
+
+  // -------------------------------------------------------------------------
   // BORRAR cotización (con cascada a quote_items por la FK on delete cascade)
   // -------------------------------------------------------------------------
   const borrarCotizacion = useCallback(
@@ -302,6 +342,7 @@ export default function CotizarPage() {
         if (autosave.quoteId === id) {
           autosave.reset();
           setNombre("");
+          setIsTemplate(false);
           setDescripcion("");
           setArchivos([]);
           setConceptos([]);
@@ -332,6 +373,7 @@ export default function CotizarPage() {
   const nuevaCotizacion = useCallback(() => {
     autosave.reset();
     setNombre("");
+    setIsTemplate(false);
     setDescripcion("");
     setArchivos([]);
     setConceptos([]);
@@ -591,6 +633,8 @@ export default function CotizarPage() {
         onAbrirCotizacion={cargarCotizacion}
         onNuevaCotizacion={nuevaCotizacion}
         onBorrarCotizacion={borrarCotizacion}
+        plantillas={misCotizaciones.plantillas}
+        onClonarPlantilla={clonarPlantilla}
       />
 
       {/* Contenido principal — más amplio para que el catálogo respire */}
@@ -668,7 +712,7 @@ export default function CotizarPage() {
           </div>
         </nav>
 
-        {/* Cabecera de la cotización: nombre editable + folio + autosave */}
+        {/* Cabecera de la cotización: nombre editable + folio + autosave + toggle plantilla */}
         <CabeceraCotizacion
           nombre={nombre}
           folio={autosave.folio}
@@ -679,6 +723,8 @@ export default function CotizarPage() {
             setNombre(nuevo);
             autosave.update({ name: nuevo });
           }}
+          isTemplate={isTemplate}
+          onToggleTemplate={toggleTemplate}
         />
 
         {/* Título dinámico: pregunta inicial → resumen cuando hay catálogo */}

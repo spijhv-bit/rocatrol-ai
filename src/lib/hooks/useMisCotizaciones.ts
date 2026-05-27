@@ -22,10 +22,14 @@ export interface CotizacionListItem {
   updated_at: string;
   created_at: string;
   ai_meta: Record<string, unknown> | null;
+  is_template: boolean;
 }
 
 export interface UseMisCotizacionesResult {
+  /** Cotizaciones reales (is_template=false), ordenadas por updated_at DESC */
   cotizaciones: CotizacionListItem[];
+  /** Plantillas reutilizables (is_template=true) — sección aparte en sidebar */
+  plantillas: CotizacionListItem[];
   loading: boolean;
   error: string | null;
   refresh: () => void;
@@ -35,7 +39,7 @@ export function useMisCotizaciones(
   session: Session | null,
   version: number = 0
 ): UseMisCotizacionesResult {
-  const [cotizaciones, setCotizaciones] = useState<CotizacionListItem[]>([]);
+  const [todas, setTodas] = useState<CotizacionListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -44,7 +48,7 @@ export function useMisCotizaciones(
 
   useEffect(() => {
     if (!session) {
-      setCotizaciones([]);
+      setTodas([]);
       return;
     }
     let cancelled = false;
@@ -53,15 +57,15 @@ export function useMisCotizaciones(
     (async () => {
       const { data, error: qErr } = await supabase
         .from("quotes")
-        .select("id, folio, name, status, updated_at, created_at, ai_meta")
+        .select("id, folio, name, status, updated_at, created_at, ai_meta, is_template")
         .order("updated_at", { ascending: false })
-        .limit(50);
+        .limit(100);
       if (cancelled) return;
       if (qErr) {
         setError(qErr.message);
-        setCotizaciones([]);
+        setTodas([]);
       } else {
-        setCotizaciones((data ?? []) as CotizacionListItem[]);
+        setTodas((data ?? []) as CotizacionListItem[]);
       }
       setLoading(false);
     })();
@@ -70,5 +74,9 @@ export function useMisCotizaciones(
     };
   }, [session, tick, version]);
 
-  return { cotizaciones, loading, error, refresh };
+  // Separar en dos listas para que el sidebar las muestre en secciones distintas
+  const cotizaciones = todas.filter((c) => !c.is_template);
+  const plantillas = todas.filter((c) => c.is_template);
+
+  return { cotizaciones, plantillas, loading, error, refresh };
 }

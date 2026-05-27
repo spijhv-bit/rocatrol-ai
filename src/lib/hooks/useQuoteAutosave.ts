@@ -25,6 +25,8 @@ export interface QuoteHeader {
   language?: "es" | "en" | "both";
   status?: "borrador" | "generando" | "revision" | "enviada" | "vista" | "aprobada" | "rechazada";
   ai_meta?: Record<string, unknown>;
+  /** Marcar como plantilla reutilizable (Bloque 3B) */
+  is_template?: boolean;
 }
 
 export interface UseQuoteAutosaveResult {
