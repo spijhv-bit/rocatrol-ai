@@ -27,6 +27,20 @@ export interface QuoteHeader {
   ai_meta?: Record<string, unknown>;
   /** Marcar como plantilla reutilizable (Bloque 3B) */
   is_template?: boolean;
+  // --- Datos de la obra (migración 0008) — etapa "Describes" ---
+  project_name?: string | null;
+  project_address?: string | null;
+  project_city?: string | null;
+  project_state?: "TX" | "FL" | "CA" | null;
+  property_type?: string | null;
+  work_area_sf?: number | null;
+  site_contact_name?: string | null;
+  site_contact_phone?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  work_schedule?: "diurno" | "nocturno" | "fin_de_semana" | "area_ocupada" | null;
+  /** Especialidad principal (columna work_type ya existente) */
+  work_type?: string | null;
 }
 
 export interface UseQuoteAutosaveResult {
@@ -36,6 +50,8 @@ export interface UseQuoteAutosaveResult {
   savedAt: Date | null;
   error: string | null;
   update: (patch: Partial<QuoteHeader>) => void;
+  /** Guarda YA (sin esperar el debounce). Útil para un botón "Guardar" explícito. */
+  guardarYa: (patch: Partial<QuoteHeader>) => Promise<void>;
   updateConceptos: (conceptos: ConceptoPropuesto[]) => void;
   /** Marca que ya hay una cotización existente (futuros updates van por UPDATE). */
   cargar: (id: string, folio: string | null) => void;
@@ -173,6 +189,16 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
     [flushHeader]
   );
 
+  // Fuerza el guardado del header de inmediato (cancela el debounce pendiente).
+  const guardarYa = useCallback(
+    async (patch: Partial<QuoteHeader>) => {
+      pendingHeaderRef.current = { ...pendingHeaderRef.current, ...patch };
+      if (headerTimerRef.current) clearTimeout(headerTimerRef.current);
+      await flushHeader();
+    },
+    [flushHeader]
+  );
+
   const updateConceptos = useCallback(
     (conceptos: ConceptoPropuesto[]) => {
       pendingItemsRef.current = conceptos;
@@ -228,6 +254,7 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
     savedAt,
     error,
     update,
+    guardarYa,
     updateConceptos,
     cargar,
     reset,

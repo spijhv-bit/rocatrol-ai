@@ -55,9 +55,21 @@ export interface RespuestaPregunta {
   respuesta: string;
 }
 
+// Contexto de la obra (etapa "Describes"). Todos opcionales; solo se mandan
+// los que el usuario llenó. Aterrizan los conceptos a la obra real.
+export interface ObraContexto {
+  ciudad?: string;
+  estado?: string;
+  tipo_inmueble?: string;
+  especialidad?: string;
+  area_ft2?: string;
+  horario?: string;
+}
+
 export interface InterpretarInput {
   descripcion: string;
   archivos?: ArchivoInput[];
+  obra?: ObraContexto;
   respuestas?: RespuestaPregunta[];
   conceptos_actuales?: ConceptoPropuesto[];
   // Preguntas que el Intérprete ya hizo en interpretaciones anteriores.
@@ -212,6 +224,11 @@ y/o respuestas (el usuario contestó preguntas previas):
 - NUNCA generes más de 25 conceptos para trabajos residenciales pequeños.
 - NUNCA uses unidades métricas (m², m, kg). Solo imperial USA.
 - NUNCA respondas en texto libre. SIEMPRE llama a proponer_conceptos.
+- NUNCA hagas el "resumen" largo: es un TÍTULO de máximo 8 palabras, NO repitas
+  toda la descripción del contratista. Lo importante son los CONCEPTOS, no el resumen.
+- Tu prioridad #1 es GENERAR LOS CONCEPTOS. Aunque el trabajo sea grande o
+  industrial, desglósalo en sus partidas y conceptos. NUNCA devuelvas la lista de
+  conceptos vacía si hay un trabajo descrito.
 
 Responde SIEMPRE llamando a la herramienta proponer_conceptos.`;
 
@@ -231,7 +248,10 @@ const TOOL_PROPONER: Anthropic.Tool = {
       },
       resumen: {
         type: "string",
-        description: "Resumen en una frase de lo que el contratista quiere cotizar.",
+        description:
+          "Título MUY CORTO para identificar la cotización: MÁXIMO 8 palabras. " +
+          "NO repitas la descripción completa. Ej: 'Drenaje industrial planta Mission Foods', " +
+          "'Pintura de recámara 12x12', 'Losa de concreto para patio'.",
       },
       confianza_global: {
         type: "number",
@@ -305,6 +325,7 @@ export async function interpretarDescripcion(
   const {
     descripcion,
     archivos = [],
+    obra,
     respuestas = [],
     conceptos_actuales = [],
     preguntas_previas = [],
@@ -339,6 +360,23 @@ export async function interpretarDescripcion(
     "Descripción del contratista:\n\n" +
     (descripcion.trim() || "(sin texto — revisa los archivos adjuntos)");
 
+  // Datos de la obra (si el contratista los capturó en la etapa Describes).
+  if (obra) {
+    const lineas: string[] = [];
+    if (obra.especialidad) lineas.push(`- Especialidad: ${obra.especialidad}`);
+    if (obra.tipo_inmueble) lineas.push(`- Tipo de inmueble: ${obra.tipo_inmueble}`);
+    if (obra.area_ft2) lineas.push(`- Área de trabajo: ${obra.area_ft2} ft²`);
+    if (obra.ciudad) lineas.push(`- Ciudad: ${obra.ciudad}`);
+    if (obra.estado) lineas.push(`- Estado: ${obra.estado}`);
+    if (obra.horario) lineas.push(`- Horario permitido: ${obra.horario}`);
+    if (lineas.length > 0) {
+      texto +=
+        "\n\nDATOS DE LA OBRA (úsalos para precisar las cantidades y el alcance; " +
+        "si dan un área, no inventes otra; respeta la especialidad indicada):\n" +
+        lineas.join("\n");
+    }
+  }
+
   if (respuestas.length > 0) {
     texto +=
       "\n\nRespuestas del contratista a preguntas previas:\n" +
@@ -369,7 +407,9 @@ export async function interpretarDescripcion(
 
   const response = await claude.messages.create({
     model: MODELS.sonnet,
-    max_tokens: 4096,
+    // 8192: los trabajos industriales generan muchos conceptos; con 4096 el
+    // tool_use se truncaba (conceptos quedaba vacío). Ver sesión 08.
+    max_tokens: 8192,
     system: [
       {
         type: "text",
@@ -387,15 +427,21 @@ export async function interpretarDescripcion(
     throw new Error("El Agente Intérprete no devolvió una interpretación válida.");
   }
 
-  const data = toolUse.input as InterpretacionResult;
+  const data = toolUse.input as Partial<InterpretacionResult>;
 
   // Costo aproximado — Claude Sonnet: ~$3/M tokens entrada, ~$15/M salida.
   const inTok = response.usage.input_tokens;
   const outTok = response.usage.output_tokens;
   const costo = (inTok / 1_000_000) * 3 + (outTok / 1_000_000) * 15;
 
+  // Normalizar: cuando la confianza es alta, el modelo a veces OMITE
+  // `preguntas` (en vez de mandar []), lo que rompía el `.map` en el cliente.
   return {
-    ...data,
+    tipo_obra: data.tipo_obra ?? "general",
+    resumen: data.resumen ?? "",
+    confianza_global: data.confianza_global ?? 0.7,
+    conceptos: data.conceptos ?? [],
+    preguntas: data.preguntas ?? [],
     meta: {
       modelo: MODELS.sonnet,
       input_tokens: inTok,

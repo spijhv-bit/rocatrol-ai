@@ -148,6 +148,16 @@ export interface Quote {
   project_name: string | null;
   project_address: string | null;
   work_type: string | null;
+  // Datos de la obra (migración 0008) — alimentan Intérprete + Preciador
+  project_city: string | null;
+  project_state: "TX" | "FL" | "CA" | null;
+  property_type: string | null;
+  work_area_sf: number | null;
+  site_contact_name: string | null;
+  site_contact_phone: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  work_schedule: "diurno" | "nocturno" | "fin_de_semana" | "area_ocupada" | null;
   input_text: string | null;
   input_files: string[];
   status: QuoteStatus;

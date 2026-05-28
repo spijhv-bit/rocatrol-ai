@@ -29,12 +29,22 @@ export async function POST(req: NextRequest) {
       body?.estado === "FL" || body?.estado === "CA" ? body.estado : "TX";
     const modo: PreciarInput["modo"] =
       body?.modo === "simple" ? "simple" : "avanzado";
+    const ciudad: string | undefined =
+      typeof body?.ciudad === "string" && body.ciudad.trim()
+        ? body.ciudad.trim()
+        : undefined;
+    const HORARIOS_OK = ["diurno", "nocturno", "fin_de_semana", "area_ocupada"];
+    const horario: PreciarInput["horario"] = HORARIOS_OK.includes(body?.horario)
+      ? body.horario
+      : undefined;
 
     const result = await generarTPU({
       descripcion,
       unidad,
       partida: typeof body?.partida === "string" ? body.partida : undefined,
       estado,
+      ciudad,
+      horario,
       modo,
     });
     return NextResponse.json(result);

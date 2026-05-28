@@ -24,6 +24,8 @@ interface Props {
   unidad: string;
   partida?: string;
   estado?: "TX" | "FL" | "CA";
+  ciudad?: string;
+  horario?: "diurno" | "nocturno" | "fin_de_semana" | "area_ocupada";
   insumosIniciales?: InsumoAPU[];
   onCerrar: () => void;
   onGuardar: (insumos: InsumoAPU[], costoDirectoUnitario: number) => void;
@@ -66,6 +68,8 @@ export default function TarjetaPrecioUnitario({
   unidad,
   partida,
   estado = "TX",
+  ciudad,
+  horario,
   insumosIniciales,
   onCerrar,
   onGuardar,
@@ -99,7 +103,7 @@ export default function TarjetaPrecioUnitario({
       const res = await fetch("/api/preciar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ descripcion, unidad, partida, estado, modo: "avanzado" }),
+        body: JSON.stringify({ descripcion, unidad, partida, estado, ciudad, horario, modo: "avanzado" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al generar.");

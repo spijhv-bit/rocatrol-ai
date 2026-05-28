@@ -10,6 +10,7 @@ import {
   type ArchivoInput,
   type RespuestaPregunta,
   type ConceptoPropuesto,
+  type ObraContexto,
 } from "@/lib/agentes/interprete";
 
 export const runtime = "nodejs";
@@ -35,6 +36,8 @@ export async function POST(req: NextRequest) {
     const preguntas_previas: string[] = Array.isArray(body?.preguntas_previas)
       ? body.preguntas_previas.filter((p: unknown) => typeof p === "string")
       : [];
+    const obra: ObraContexto | undefined =
+      body?.obra && typeof body.obra === "object" ? body.obra : undefined;
 
     // Hace falta texto suficiente O al menos un archivo.
     if (descripcion.trim().length < 10 && archivos.length === 0) {
@@ -51,6 +54,7 @@ export async function POST(req: NextRequest) {
     const result = await interpretarDescripcion({
       descripcion,
       archivos,
+      obra,
       respuestas,
       conceptos_actuales,
       preguntas_previas,

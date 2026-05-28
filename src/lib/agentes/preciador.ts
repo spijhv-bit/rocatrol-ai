@@ -18,13 +18,29 @@ import {
   LABOR_BURDEN_DEFAULT_PCT,
 } from "@/lib/apu/tipos";
 
+export type HorarioObra = "diurno" | "nocturno" | "fin_de_semana" | "area_ocupada";
+
 export interface PreciarInput {
   descripcion: string;
   unidad: string;
   partida?: string;
   estado?: "TX" | "FL" | "CA";
+  ciudad?: string;
+  horario?: HorarioObra;
   modo?: ModoAPU;
 }
+
+// El horario permitido define el factor de rendimiento de la cuadrilla (guía
+// pág. 4-5). Mapeo a un factor sugerido + nota para que el Preciador lo aplique.
+const HORARIO_FACTOR: Record<HorarioObra, { factor: number; nota: string }> = {
+  diurno: { factor: 1.0, nota: "horario diurno normal (sin penalización)" },
+  nocturno: { factor: 0.85, nota: "trabajo nocturno (fatiga/ruido, ~0.85)" },
+  fin_de_semana: { factor: 0.9, nota: "fin de semana (~0.90)" },
+  area_ocupada: {
+    factor: 0.75,
+    nota: "área ocupada/habitada con interferencias (~0.75)",
+  },
+};
 
 export interface TpuGenerada {
   insumos: InsumoAPU[];
@@ -195,14 +211,21 @@ interface ToolGenerarTpuInput {
 }
 
 export async function generarTPU(input: PreciarInput): Promise<PreciarResponse> {
-  const { descripcion, unidad, partida, estado = "TX", modo = "avanzado" } = input;
+  const { descripcion, unidad, partida, estado = "TX", ciudad, horario, modo = "avanzado" } = input;
+
+  const horarioInfo = horario ? HORARIO_FACTOR[horario] : null;
 
   const texto = `Construye el análisis de precio unitario para este concepto:
 
 Concepto: ${descripcion}
 Unidad: ${unidad}
 ${partida ? `Partida: ${partida}` : ""}
-Estado: ${estado}
+Estado: ${estado}${ciudad ? `\nCiudad: ${ciudad} (ajusta precios/salarios al costo de vida local de esta ciudad)` : ""}
+${
+  horarioInfo
+    ? `Horario permitido: ${horarioInfo.nota}. Aplica F_horario ≈ ${horarioInfo.factor} al rendimiento de la mano de obra y el equipo (rendimiento_real = rendimiento_base × ${horarioInfo.factor}), y explícalo en las notas.`
+    : ""
+}
 Modo de cálculo: ${modo}
 Labor burden a aplicar: ${LABOR_BURDEN_DEFAULT_PCT}%
 

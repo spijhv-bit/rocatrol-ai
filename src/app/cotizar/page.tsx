@@ -11,12 +11,14 @@ import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
 import CabeceraCotizacion from "@/components/CabeceraCotizacion";
 import TarjetaPrecioUnitario from "@/components/TarjetaPrecioUnitario";
+import FormularioObra, { OBRA_VACIA, type DatosObra } from "@/components/FormularioObra";
 import type { InsumoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
 import { PORCENTAJES_DEFAULT_AVANZADO, PORCENTAJES_DEFAULT_SIMPLE } from "@/lib/apu/tipos";
 import { calcularCascadaSobreSubtotal } from "@/lib/apu/calcular";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
+import { guiaPorEspecialidad } from "@/lib/plantillas_prompt";
 import { useAuth } from "@/lib/auth-context";
-import { useQuoteAutosave } from "@/lib/hooks/useQuoteAutosave";
+import { useQuoteAutosave, type QuoteHeader } from "@/lib/hooks/useQuoteAutosave";
 import { useMisCotizaciones } from "@/lib/hooks/useMisCotizaciones";
 import { supabase } from "@/lib/supabase";
 import type {
@@ -38,12 +40,6 @@ function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | und
   if (t.includes("eléctr") || t.includes("electr")) return "electrico";
   return undefined;
 }
-
-const EJEMPLOS = [
-  "Voy a pintar una recámara de 12 por 12 pies, con techo de 9 pies de alto. Dos manos de pintura. La pared tiene unos raspones que hay que resanar. El cliente pone la pintura.",
-  "Necesito cotizar una losa de concreto de 20 por 30 pies, 4 pulgadas de espesor, para un patio.",
-  "El cliente quiere remodelar un baño de 8 por 6 pies: tablaroca en las paredes, piso de tile y pintura.",
-];
 
 const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB por archivo
@@ -193,6 +189,10 @@ export default function CotizarPage() {
   // (evita re-guardar los mismos conceptos que acabamos de leer de la BD)
   const cargandoCotizacionRef = useRef(false);
 
+  // Datos de la obra (etapa "Describes" — migración 0008). Alimentan al
+  // Intérprete (área/tipo/especialidad) y al Preciador (estado/ciudad/horario).
+  const [obra, setObra] = useState<DatosObra>(OBRA_VACIA);
+
   const [descripcion, setDescripcion] = useState("");
   const [archivos, setArchivos] = useState<ArchivoInput[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -236,6 +236,43 @@ export default function CotizarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conceptos]);
 
+  // Cambia un campo de la obra y lo autoguarda (debounce 2s). Convierte ""→null
+  // en los campos con restricción (estado/horario/fechas) y a número en el área.
+  const cambiarObra = useCallback(
+    (campo: keyof DatosObra, valor: string) => {
+      setObra((prev) => ({ ...prev, [campo]: valor }));
+      const limpio = valor.trim();
+      let patch: Partial<QuoteHeader>;
+      if (campo === "work_area_sf") {
+        const n = parseFloat(limpio);
+        patch = { work_area_sf: limpio === "" || Number.isNaN(n) ? null : n };
+      } else {
+        patch = { [campo]: limpio === "" ? null : limpio } as Partial<QuoteHeader>;
+      }
+      autosave.update(patch);
+    },
+    [autosave]
+  );
+
+  // Guarda TODOS los datos de la obra de inmediato (botón "Guardar" explícito,
+  // además del autoguardado). Manda el patch completo con ""→null.
+  const guardarObra = useCallback(async () => {
+    const n = parseFloat(obra.work_area_sf.trim());
+    await autosave.guardarYa({
+      project_address: obra.project_address.trim() || null,
+      project_city: obra.project_city.trim() || null,
+      project_state: (obra.project_state || null) as QuoteHeader["project_state"],
+      property_type: obra.property_type || null,
+      work_type: obra.work_type || null,
+      work_area_sf: obra.work_area_sf.trim() === "" || Number.isNaN(n) ? null : n,
+      site_contact_name: obra.site_contact_name.trim() || null,
+      site_contact_phone: obra.site_contact_phone.trim() || null,
+      start_date: obra.start_date || null,
+      end_date: obra.end_date || null,
+      work_schedule: (obra.work_schedule || null) as QuoteHeader["work_schedule"],
+    });
+  }, [autosave, obra]);
+
   // -------------------------------------------------------------------------
   // CARGAR cotización existente (click desde el sidebar o ?id=xxx en URL)
   // -------------------------------------------------------------------------
@@ -244,7 +281,7 @@ export default function CotizarPage() {
       cargandoCotizacionRef.current = true;
       const { data: quote, error: qErr } = await supabase
         .from("quotes")
-        .select("id, folio, name, input_text, language, status, ai_meta, is_template")
+        .select("id, folio, name, input_text, language, status, ai_meta, is_template, project_address, project_city, project_state, property_type, work_type, work_area_sf, site_contact_name, site_contact_phone, start_date, end_date, work_schedule")
         .eq("id", quoteId)
         .maybeSingle();
       if (qErr) throw qErr;
@@ -264,6 +301,19 @@ export default function CotizarPage() {
       setNombre(quote.name ?? "");
       setIsTemplate(quote.is_template === true);
       setDescripcion(quote.input_text ?? "");
+      setObra({
+        project_address: quote.project_address ?? "",
+        project_city: quote.project_city ?? "",
+        project_state: (quote.project_state as DatosObra["project_state"]) ?? "",
+        property_type: quote.property_type ?? "",
+        work_type: quote.work_type ?? "",
+        work_area_sf: quote.work_area_sf != null ? String(quote.work_area_sf) : "",
+        site_contact_name: quote.site_contact_name ?? "",
+        site_contact_phone: quote.site_contact_phone ?? "",
+        start_date: quote.start_date ?? "",
+        end_date: quote.end_date ?? "",
+        work_schedule: (quote.work_schedule as DatosObra["work_schedule"]) ?? "",
+      });
       setArchivos([]);
       setRespuestas({});
       setPreguntasPrevias([]);
@@ -363,6 +413,7 @@ export default function CotizarPage() {
           setNombre("");
           setIsTemplate(false);
           setDescripcion("");
+          setObra(OBRA_VACIA);
           setArchivos([]);
           setConceptos([]);
           setResultado(null);
@@ -394,6 +445,7 @@ export default function CotizarPage() {
     setNombre("");
     setIsTemplate(false);
     setDescripcion("");
+    setObra(OBRA_VACIA);
     setArchivos([]);
     setConceptos([]);
     setResultado(null);
@@ -457,12 +509,23 @@ export default function CotizarPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al interpretar.");
       const r = data as InterpretacionResponse;
+      // Defensa: si el modelo omite arrays, tratarlos como vacíos (no romper).
+      const preguntasR = r.preguntas ?? [];
+      r.conceptos = r.conceptos ?? [];
+      r.preguntas = preguntasR;
       setResultado(r);
       setConceptos(r.conceptos);
       setRespuestas({});
+      // Si la IA no desglosó ningún concepto (y no hay preguntas), avisar.
+      if (r.conceptos.length === 0 && preguntasR.length === 0) {
+        setError(
+          "La IA no logró desglosar el trabajo en conceptos. Intenta de nuevo, o " +
+            "divide el trabajo en partes más pequeñas (ej. primero la tubería, luego la demolición)."
+        );
+      }
       // Acumular las preguntas de ESTA respuesta para evitar repeticiones futuras.
       setPreguntasPrevias((prev) => {
-        const todas = [...prev, ...preguntasNuevas, ...r.preguntas.map((q) => q.pregunta)];
+        const todas = [...prev, ...preguntasNuevas, ...preguntasR.map((q) => q.pregunta)];
         return Array.from(new Set(todas));
       });
       // Autoguardar la descripción + metadata del Intérprete a la nube
@@ -483,6 +546,39 @@ export default function CotizarPage() {
     }
   }
 
+  // Arma el contexto de la obra (solo campos con valor) que se manda a la IA.
+  // El Intérprete lo usa para mejores cantidades; el área/tipo/especialidad
+  // aterrizan los conceptos a la obra real.
+  function contextoObra(): Record<string, string> {
+    const horarioLabel: Record<string, string> = {
+      diurno: "Diurno (horas hábiles)",
+      nocturno: "Nocturno",
+      fin_de_semana: "Fin de semana",
+      area_ocupada: "Área ocupada / habitada",
+    };
+    const o: Record<string, string> = {};
+    if (obra.project_city.trim()) o.ciudad = obra.project_city.trim();
+    if (obra.project_state) o.estado = obra.project_state;
+    if (obra.property_type) o.tipo_inmueble = obra.property_type;
+    if (obra.work_type) o.especialidad = obra.work_type;
+    if (obra.work_area_sf.trim()) o.area_ft2 = obra.work_area_sf.trim();
+    if (obra.work_schedule)
+      o.horario = horarioLabel[obra.work_schedule] ?? obra.work_schedule;
+    return o;
+  }
+
+  // Inserta la plantilla guía de la especialidad en el textarea (rellenable).
+  function usarGuia() {
+    const plantilla = guiaPorEspecialidad(obra.work_type).plantilla;
+    if (
+      descripcion.trim() &&
+      !window.confirm("¿Reemplazar el texto actual con la guía? Lo que escribiste se perderá.")
+    ) {
+      return;
+    }
+    setDescripcion(plantilla);
+  }
+
   function generar() {
     if (descripcion.trim().length < 10 && archivos.length === 0) {
       setError("Escribe el trabajo o adjunta una foto, croquis o PDF.");
@@ -490,7 +586,7 @@ export default function CotizarPage() {
     }
     // Nueva cotización desde cero: limpiar preguntas previas.
     setPreguntasPrevias([]);
-    llamarInterprete({ descripcion, archivos }, []);
+    llamarInterprete({ descripcion, archivos, obra: contextoObra() }, []);
   }
 
   function actualizar() {
@@ -511,6 +607,7 @@ export default function CotizarPage() {
       {
         descripcion,
         archivos,
+        obra: contextoObra(),
         respuestas: arr,
         conceptos_actuales: conceptos,
         preguntas_previas: preguntasPrevias,
@@ -622,6 +719,9 @@ export default function CotizarPage() {
   //   3) "Nueva cotización" por defecto
   const tituloCotizacion =
     nombre.trim() || (resultado ? resultado.resumen : "Nueva cotización");
+
+  // Guía del prompt según la especialidad elegida en el formulario de obra.
+  const guia = guiaPorEspecialidad(obra.work_type);
 
   // Early return: mientras carga auth, mostrar loader; sin sesión, nada (redirige)
   if (authLoading) {
@@ -763,7 +863,10 @@ export default function CotizarPage() {
               <span>📑</span>
               <span>Título de la cotización</span>
             </div>
-            <h1 className="text-xl font-bold leading-snug text-gray-900 sm:text-2xl">
+            <h1
+              className="line-clamp-2 text-base font-bold leading-snug text-gray-900 sm:text-lg"
+              title={resultado.resumen}
+            >
               {resultado.resumen}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
@@ -786,23 +889,48 @@ export default function CotizarPage() {
         {/* Caja de descripción + adjuntos: visible SOLO antes del primer resultado */}
         {!resultado && (
           <>
-            {/* Ejemplos */}
-            <div className="mt-5">
-              <p className="mb-2 text-xs uppercase tracking-wide text-white/40">
-                O empieza con un ejemplo
+            {/* Alta de la obra (datos que alimentan a la IA) */}
+            <FormularioObra
+              obra={obra}
+              onCambiar={cambiarObra}
+              onGuardar={guardarObra}
+              saving={autosave.saving}
+              savedAt={autosave.savedAt}
+              error={autosave.error}
+            />
+
+            {/* Separador hacia la descripción del trabajo */}
+            <div className="mt-7 mb-1 flex items-center gap-2 text-xs uppercase tracking-wide text-white/40">
+              <span>✍️</span>
+              <span>Describe el trabajo</span>
+            </div>
+
+            {/* Guía dinámica del prompt según la especialidad de la obra */}
+            <div className="mt-3 rounded-xl border border-roca-gold/30 bg-roca-gold/5 p-4">
+              <p className="text-xs font-semibold text-roca-gold">
+                💡 Para cotizar bien tu trabajo de {guia.etiqueta}, cuéntame:
               </p>
-              <div className="flex flex-col gap-2">
-                {EJEMPLOS.map((ej, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setDescripcion(ej)}
-                    disabled={cargando}
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-left text-xs text-white/70 transition hover:border-roca-gold/40 hover:text-white disabled:opacity-50"
-                  >
-                    {ej}
-                  </button>
+              <ul className="mt-2 space-y-1 text-xs text-white/75">
+                {guia.puntos.map((p, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="text-roca-gold/70">•</span>
+                    <span>{p}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
+              <button
+                type="button"
+                onClick={usarGuia}
+                disabled={cargando}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-roca-gold/40 bg-roca-gold/10 px-3 py-1.5 text-xs font-semibold text-roca-gold transition hover:bg-roca-gold/20 disabled:opacity-50"
+              >
+                📝 Llenar con la guía de {guia.etiqueta}
+              </button>
+              {!obra.work_type && (
+                <p className="mt-2 text-[11px] text-white/40">
+                  Tip: escoge la <strong>especialidad</strong> arriba para una guía más específica.
+                </p>
+              )}
             </div>
 
             {/* Caja de texto */}
@@ -811,7 +939,7 @@ export default function CotizarPage() {
               onChange={(e) => setDescripcion(e.target.value)}
               disabled={cargando}
               rows={5}
-              placeholder="Ejemplo: Voy a pintar una sala de 15 por 20 pies, paredes y techo, dos manos..."
+              placeholder={guia.placeholder}
               className="mt-5 w-full resize-y rounded-xl border border-white/15 bg-white/5 p-4 text-sm text-white placeholder:text-white/30 focus:border-roca-gold focus:outline-none disabled:opacity-50"
             />
 
@@ -1375,7 +1503,9 @@ export default function CotizarPage() {
           descripcion={conceptos[tpuModal.idx].descripcion_es}
           unidad={conceptos[tpuModal.idx].unidad}
           partida={conceptos[tpuModal.idx].partida}
-          estado="TX"
+          estado={obra.project_state || "TX"}
+          ciudad={obra.project_city.trim() || undefined}
+          horario={obra.work_schedule || undefined}
           insumosIniciales={tpus[tpuModal.idx]}
           onCerrar={() => setTpuModal({ abierto: false, idx: -1 })}
           onGuardar={(insumos, costoDirecto) => {
