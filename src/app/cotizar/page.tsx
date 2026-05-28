@@ -10,6 +10,10 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
 import CabeceraCotizacion from "@/components/CabeceraCotizacion";
+import TarjetaPrecioUnitario from "@/components/TarjetaPrecioUnitario";
+import type { InsumoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
+import { PORCENTAJES_DEFAULT_AVANZADO, PORCENTAJES_DEFAULT_SIMPLE } from "@/lib/apu/tipos";
+import { calcularCascadaSobreSubtotal } from "@/lib/apu/calcular";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import { useAuth } from "@/lib/auth-context";
 import { useQuoteAutosave } from "@/lib/hooks/useQuoteAutosave";
@@ -205,6 +209,19 @@ export default function CotizarPage() {
     partida: "",
   });
 
+  // Motor APU: costo directo unitario + insumos por concepto (indexado por idxGlobal).
+  // La cascada (IO/IC/F/U/CA) NO es por concepto: se aplica una vez al total (obs #6).
+  const [tpuModal, setTpuModal] = useState<{ abierto: boolean; idx: number }>({
+    abierto: false,
+    idx: -1,
+  });
+  const [precios, setPrecios] = useState<Record<number, number>>({}); // costo directo unitario
+  const [tpus, setTpus] = useState<Record<number, InsumoAPU[]>>({}); // insumos por concepto
+  // Porcentajes de cascada a NIVEL COTIZACIÓN (una sola vez para todo)
+  const [pctCotizacion, setPctCotizacion] = useState<PorcentajesAPU>(
+    PORCENTAJES_DEFAULT_AVANZADO
+  );
+
   // Sincronizar conceptos editables con la nube (debounce 2s, espera a tener quoteId).
   // Si estamos cargando una cotización del sidebar, NO re-guardamos lo que
   // acabamos de leer (sería un round-trip inútil DELETE+INSERT idéntico).
@@ -275,6 +292,8 @@ export default function CotizarPage() {
           preguntas: [],
           meta: {
             modelo: (meta.modelo as string) || "",
+            input_tokens: 0,
+            output_tokens: 0,
             costo_usd: Number(meta.costo_usd ?? 0),
           },
         });
@@ -1002,18 +1021,28 @@ export default function CotizarPage() {
                                 />
                               </td>
                               <td className="px-2 py-1.5 text-right align-top">
-                                <span
-                                  className="text-[11px] text-gray-300"
-                                  title="El Agente Preciador calculará el precio unitario en la siguiente etapa"
-                                >
-                                  {formatUSD(0)}
-                                </span>
+                                {precios[i] != null ? (
+                                  <button
+                                    onClick={() => setTpuModal({ abierto: true, idx: i })}
+                                    title="Ver / editar el análisis de precio unitario"
+                                    className="text-[11px] font-semibold text-roca-gold-soft underline-offset-2 hover:underline"
+                                  >
+                                    {formatUSD(precios[i])}
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setTpuModal({ abierto: true, idx: i })}
+                                    title="Calcular el precio unitario con el Agente Preciador"
+                                    className="rounded border border-roca-gold/50 px-1.5 py-0.5 text-[10px] font-semibold text-roca-gold-soft transition hover:bg-roca-gold/10"
+                                  >
+                                    💲 Calcular
+                                  </button>
+                                )}
                               </td>
                               <td className="px-2 py-1.5 text-right align-top">
-                                {/* Cuando haya precio: muestra Cant × P.Unit. Por ahora 0.00 + chip de confianza */}
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <span className="text-[11px] font-medium text-gray-400" title="Total del concepto = Cantidad × Precio unitario">
-                                    {formatUSD(0)}
+                                  <span className="text-[11px] font-medium text-gray-700" title="Total del concepto = Cantidad × Precio unitario">
+                                    {formatUSD((precios[i] ?? 0) * (c.cantidad_estimada || 0))}
                                   </span>
                                   <span
                                     className="rounded-full px-1.5 py-0.5 text-[9px] font-medium"
@@ -1046,7 +1075,14 @@ export default function CotizarPage() {
                           Subtotal General
                         </td>
                         <td className="px-2 py-2.5 text-right text-base font-bold border-t-2 border-roca-gold/50">
-                          <span className="text-roca-gold">{formatUSD(0)}</span>
+                          <span className="text-roca-gold">
+                            {formatUSD(
+                              conceptos.reduce(
+                                (acc, c, i) => acc + (precios[i] ?? 0) * (c.cantidad_estimada || 0),
+                                0
+                              )
+                            )}
+                          </span>
                         </td>
                         <td className="px-1 border-t-2 border-roca-gold/50"></td>
                       </tr>
@@ -1070,6 +1106,60 @@ export default function CotizarPage() {
                 </span>
               </div>
             </div>
+
+            {/* RESUMEN ECONÓMICO — la cascada se aplica UNA VEZ al total (obs #6) */}
+            {(() => {
+              const subtotalDirecto = conceptos.reduce(
+                (acc, c, i) => acc + (precios[i] ?? 0) * (c.cantidad_estimada || 0),
+                0
+              );
+              if (subtotalDirecto <= 0) return null;
+              const casc = calcularCascadaSobreSubtotal(subtotalDirecto, pctCotizacion);
+              const editPct = (campo: keyof PorcentajesAPU, v: string) =>
+                setPctCotizacion((prev) => ({ ...prev, [campo]: Number(v) || 0 }));
+              return (
+                <div className="overflow-hidden rounded-xl bg-white text-gray-900 shadow-lg">
+                  <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">🧮</span>
+                      <h2 className="text-sm font-bold text-gray-800">Resumen económico de la cotización</h2>
+                    </div>
+                    <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5 text-[11px]">
+                      <button
+                        onClick={() => setPctCotizacion((p) => ({ ...PORCENTAJES_DEFAULT_SIMPLE, ...p, modo: "simple" }))}
+                        className={`rounded px-2.5 py-1 font-semibold transition ${pctCotizacion.modo === "simple" ? "bg-gray-900 text-white" : "text-gray-500"}`}
+                      >Simple</button>
+                      <button
+                        onClick={() => setPctCotizacion((p) => ({ ...PORCENTAJES_DEFAULT_AVANZADO, ...p, modo: "avanzado" }))}
+                        className={`rounded px-2.5 py-1 font-semibold transition ${pctCotizacion.modo === "avanzado" ? "bg-gray-900 text-white" : "text-gray-500"}`}
+                      >Avanzado</button>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3 text-sm">
+                    <ResumenRenglon label="Subtotal de costos directos" valor={formatUSD(casc.subtotal_directo)} fuerte />
+                    {pctCotizacion.modo === "avanzado" ? (
+                      <>
+                        <ResumenRenglonPct label="Indirectos de oficina" campo="office_overhead_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.indirectos_oficina)} />
+                        <ResumenRenglonPct label="Indirectos de campo" campo="field_overhead_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.indirectos_campo)} />
+                        <ResumenRenglonPct label="Financiamiento" campo="financing_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.financiamiento)} />
+                        <ResumenRenglon label="Subtotal antes de utilidad" valor={formatUSD(casc.subtotal_antes_utilidad)} />
+                        <ResumenRenglonPct label="Utilidad" campo="profit_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.utilidad)} />
+                        <ResumenRenglonPct label="Cargos adicionales" campo="additional_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.cargos_adicionales)} />
+                      </>
+                    ) : (
+                      <ResumenRenglonPct label="Markup (indirectos + utilidad)" campo="markup_pct" pct={pctCotizacion} onChange={editPct} valor={formatUSD(casc.markup)} />
+                    )}
+                    <div className="mt-2 flex items-center justify-between border-t-2 border-roca-gold/50 pt-2">
+                      <span className="text-sm font-bold uppercase tracking-wide text-gray-800">Total de la cotización</span>
+                      <span className="text-xl font-bold text-roca-gold-soft">{formatUSD(casc.total)}</span>
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-gray-400">
+                      Los indirectos, financiamiento, utilidad y cargos se calculan una sola vez sobre el subtotal directo de toda la cotización.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Preguntas interactivas */}
             {resultado.preguntas.length > 0 && (
@@ -1277,6 +1367,74 @@ export default function CotizarPage() {
           setBuscador({ abierto: false, partida: "" });
         }}
       />
+
+      {/* Modal Tarjeta de Precio Unitario (Motor APU — etapa Precios) */}
+      {tpuModal.abierto && tpuModal.idx >= 0 && conceptos[tpuModal.idx] && (
+        <TarjetaPrecioUnitario
+          abierto={tpuModal.abierto}
+          descripcion={conceptos[tpuModal.idx].descripcion_es}
+          unidad={conceptos[tpuModal.idx].unidad}
+          partida={conceptos[tpuModal.idx].partida}
+          estado="TX"
+          insumosIniciales={tpus[tpuModal.idx]}
+          onCerrar={() => setTpuModal({ abierto: false, idx: -1 })}
+          onGuardar={(insumos, costoDirecto) => {
+            const idx = tpuModal.idx;
+            setTpus((prev) => ({ ...prev, [idx]: insumos }));
+            setPrecios((prev) => ({ ...prev, [idx]: costoDirecto }));
+            setTpuModal({ abierto: false, idx: -1 });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- Helpers del Resumen económico (cascada a nivel cotización) ------------
+
+function ResumenRenglon({
+  label,
+  valor,
+  fuerte,
+}: {
+  label: string;
+  valor: string;
+  fuerte?: boolean;
+}) {
+  return (
+    <div className={`flex items-center justify-between py-1 ${fuerte ? "font-bold text-gray-900" : "text-gray-600"}`}>
+      <span>{label}</span>
+      <span>{valor}</span>
+    </div>
+  );
+}
+
+function ResumenRenglonPct({
+  label,
+  campo,
+  pct,
+  onChange,
+  valor,
+}: {
+  label: string;
+  campo: keyof PorcentajesAPU;
+  pct: PorcentajesAPU;
+  onChange: (campo: keyof PorcentajesAPU, valor: string) => void;
+  valor: string;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1 text-gray-600">
+      <span className="flex items-center gap-1.5">
+        {label}
+        <input
+          type="number"
+          value={(pct[campo] as number) ?? 0}
+          onChange={(e) => onChange(campo, e.target.value)}
+          className="w-14 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-right text-xs focus:border-roca-gold focus:outline-none"
+        />
+        <span className="text-[10px] text-gray-400">%</span>
+      </span>
+      <span>{valor}</span>
     </div>
   );
 }
