@@ -281,6 +281,28 @@ contacto, fechas, horario → posible migration 0008).
   debe venir SEPARADA por secciones: Materiales / Mano de obra / Herramienta / Equipo
   / Cascada — no en un párrafo corrido. Cambiar `notas` de string a objeto por sección.
 
+### 🆕 Observación 8 — Encabezado de la tarjeta más informativo
+En la TarjetaPrecioUnitario, mostrar más prominente (más grande):
+- La **unidad** del concepto que se está calculando.
+- La **cantidad** del concepto (cuántas unidades hay en la cotización).
+- El **costo total del concepto a precio directo** (costo directo unitario × cantidad),
+  solo como REFERENCIA del costo del concepto dentro del presupuesto.
+→ Es ayuda visual: el usuario ve de un vistazo unidad + cantidad + cuánto suma ese
+concepto al costo directo total, mientras edita su tarjeta.
+
+### 🆕 Observación 9 — Tarjeta de CUANTIFICACIÓN (Agente Cuantificador / Capa 2)
+Igual que la TarjetaPrecioUnitario para el precio, debe haber una **Tarjeta de
+Cuantificación** para la CANTIDAD/VOLUMEN de cada concepto. La IA calcula la cantidad,
+pero el usuario debe poder **ver cómo se calculó** y **mover las dimensiones/factores**:
+- Inputs del generador: largo × ancho × alto/espesor × piezas × factor desperdicio → cantidad.
+- Botón "🤖 Calcular cantidad con IA" (Agente Cuantificador) + "🧮 ver/editar cálculo".
+- El usuario corrige dimensiones o factores → la cantidad recalcula en vivo.
+- Esto es la **Capa 2 (Generador/takeoff)** del motor de 3 capas (ver PROCESO_COTIZACION.md).
+  El schema YA tiene la tabla `generators` (migration 0001) lista para esto.
+- Es la etapa "Cuantificación" del wizard (hoy `próx.`).
+→ Construir el **Agente Cuantificador** (`src/lib/agentes/cuantificador.ts` + `/api/cuantificar`)
+  + componente `TarjetaCuantificacion` análogo a la TPU. Patrón IA-propone → humano-corrige.
+
 ---
 
 ## 8. Fuente de verdad
