@@ -53,6 +53,7 @@ La pantalla "Describes" debe capturar la OBRA completa, no solo texto libre. Cam
 6. **Obs #7 (HECHO)**: agregar/quitar insumos en la tarjeta. ✅
 7. **Obs #8**: en la tarjeta, mostrar más grande la **unidad** del concepto + la **cantidad** + el **costo total del concepto a precio directo** (costo directo × cantidad) como referencia. ⏳
 8. **Obs #9 (Agente Cuantificador / Capa 2)**: tarjeta de CUANTIFICACIÓN análoga a la de precio. La IA calcula la cantidad/volumen, pero el usuario ve cómo se calculó (largo×ancho×alto×piezas×desperdicio) y puede mover dimensiones/factores para corregir. Construir `cuantificador.ts` + `/api/cuantificar` + `TarjetaCuantificacion`. Usa tabla `generators` (ya existe). Es la etapa "Cuantificación" del wizard. ⏳
+9. **Obs #10 (calculadora de rendimiento por insumo)**: en la TarjetaPrecioUnitario, al lado del rendimiento de cada insumo de MO/equipo, un botón "🧮 calcular" que muestra cómo se calculó (rendimiento_base × factores = rendimiento_real) y permite editar base/factores → recalcula cantidad e importe. El schema ya guarda rendimiento_base/factores/rendimiento_real, solo falta exponerlo en UI. ⏳
 
 ### TAREA C — Persistir la TPU en BD
 Hoy los precios calculados viven en estado React (no se guardan). Falta: guardar `unit_prices` + `unit_price_items` por concepto + los % de cascada de la cotización. Conectar con el autosave existente.

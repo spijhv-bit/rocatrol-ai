@@ -303,6 +303,19 @@ pero el usuario debe poder **ver cómo se calculó** y **mover las dimensiones/f
 → Construir el **Agente Cuantificador** (`src/lib/agentes/cuantificador.ts` + `/api/cuantificar`)
   + componente `TarjetaCuantificacion` análogo a la TPU. Patrón IA-propone → humano-corrige.
 
+### 🆕 Observación 10 — Calculadora de RENDIMIENTO por insumo (en la TarjetaPrecioUnitario)
+Cada insumo de mano de obra / equipo (que tiene rendimiento) debe mostrar, al lado del
+rendimiento, un botón "🧮 calcular" que al hacer click abra el detalle de **cómo se
+calculó ese rendimiento** y permita **mover las opciones**:
+- Muestra: `rendimiento_base × factores de ajuste = rendimiento_real`
+  (acceso, altura, clima, interferencia, calidad — los de la guía pág. 4-5).
+- El usuario edita el rendimiento base y/o activa/ajusta factores → recalcula la
+  cantidad (jornales/unidad = 1/rendimiento_real) → recalcula el importe del insumo.
+- El schema YA guarda `rendimiento_base`, `factores` (jsonb), `rendimiento_real` en
+  `catalog_tpu_items` y `unit_price_items` — solo falta exponerlo en la UI con edición.
+→ Es la misma idea que las calculadoras de % (obs #2/#4) pero para el rendimiento de
+  cada insumo. Hace el precio TRAZABLE y defendible (regla de oro de la guía).
+
 ---
 
 ## 8. Fuente de verdad
