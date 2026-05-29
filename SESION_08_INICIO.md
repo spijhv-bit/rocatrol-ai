@@ -1,90 +1,84 @@
 # SESIÓN 08 — CERRADA · Cómo retomar Sesión 09 — Rocatrol AI
 
-> **Fecha cierre sesión 08:** 28-may-2026
+> **Fecha cierre sesión 08:** 29-may-2026 (sesión muy larga: Describes→Obra + Generador + calculadoras de rendimiento)
 > **Modelo usado:** Opus 4.7
-> **Estado:** ✅ TAREA A (Describes → crear OBRA) construida y compilando. ⏳ Falta aplicar migration 0008 en Supabase + validar visual + push a producción.
 > **Cómo retomar sesión 09:** abre Claude Code en `IA TRABAJO/`, di "Sigamos con Rocatrol AI sesión 09", lee este archivo + memoria `project_rocatrol_ai.md` + `MOTOR_APU_DISENO.md`.
 
 ---
 
-## 🎯 LO QUE SE HIZO (TAREA A — Describes crea la OBRA)
+## ✅ EN PRODUCCIÓN (rocatrol.com/cotizar) — pusheado
 
-La etapa "Describes" del wizard ya no es solo una caja de texto: ahora da de alta la
-**obra completa** con un formulario, y esos datos alimentan a la IA.
-
-### Archivos nuevos
-| Archivo | Qué |
+| Commit | Qué |
 |---|---|
-| `supabase/migrations/0008_obra_quotes.sql` | 9 columnas nuevas en `quotes` + actualiza `clone_quote_from_template` para heredar datos tipológicos |
-| `src/components/FormularioObra.tsx` | Formulario de alta de obra (tarjeta blanca, mobile-first, grid 2 col) |
+| `2def9d2` | **TAREA A: Describes da de alta la OBRA** + guía de prompt por especialidad + fixes del catálogo |
 
-### Archivos modificados
-| Archivo | Cambio |
-|---|---|
-| `src/lib/database.types.ts` | `interface Quote` + 9 columnas |
-| `src/lib/hooks/useQuoteAutosave.ts` | `QuoteHeader` + campos de obra (autosave los persiste) |
-| `src/app/cotizar/page.tsx` | estado `obra`, `cambiarObra`, render del formulario, hidratar al cargar, limpiar en nueva/borrar, pasar contexto al Intérprete y estado/ciudad/horario al Preciador |
-| `src/lib/agentes/interprete.ts` | `ObraContexto` + bloque "DATOS DE LA OBRA" en el prompt |
-| `src/app/api/interpretar/route.ts` | lee `obra` del body |
-| `src/lib/agentes/preciador.ts` | `ciudad` + `horario` → factor de rendimiento (HORARIO_FACTOR) en el prompt |
-| `src/app/api/preciar/route.ts` | lee `ciudad` + `horario` del body |
-| `src/components/TarjetaPrecioUnitario.tsx` | props `ciudad` + `horario` → body de `/api/preciar` |
-
-### Campos de la obra (en `quotes`)
-- **Ya existían (0001):** `project_name` (nombre obra = título cabecera), `project_address` (ubicación), `work_type` (especialidad).
-- **Nuevos (0008):** `project_city`, `project_state` (TX/FL/CA), `property_type`, `work_area_sf`, `site_contact_name`, `site_contact_phone`, `start_date`, `end_date`, `work_schedule` (diurno/nocturno/fin_de_semana/area_ocupada).
-
-### Cómo alimenta a la IA
-- **Intérprete:** especialidad + tipo de inmueble + área + ciudad + horario → mejores cantidades y alcance.
-- **Preciador:** estado → salarios/precios locales; ciudad → ajuste fino costo de vida; horario → factor de rendimiento de la cuadrilla (diurno 1.0 · nocturno 0.85 · finde 0.90 · área ocupada 0.75).
+- **Formulario de obra** (ciudad, estado, tipo inmueble, área, contacto, fechas, horario) con autosave + **botón Guardar** explícito. Migration **0008** aplicada en Supabase.
+- Los datos de la obra alimentan al **Intérprete** (área/tipo/especialidad → cantidades) y al **Preciador** (estado/ciudad → precios; horario → factor de rendimiento).
+- **Guía de prompt por especialidad** (`src/lib/plantillas_prompt.ts`): plantilla rellenable + placeholder dinámico + checklist de qué contar.
+- **Fixes del catálogo**: el Intérprete truncaba conceptos en obras grandes → `max_tokens` 8192 + resumen corto (título) + normaliza arrays vacíos. Título de la cotización acortado (line-clamp).
 
 ---
 
-## 🔥 PENDIENTES INMEDIATOS (en orden) — para sesión 09
+## 🟡 EN LOCAL — committeado pero NO pusheado (pendiente VALIDAR + subir)
 
-### 🔴 1. Julio: aplicar migration 0008 en Supabase (BLOQUEANTE — manual)
-1. Supabase Dashboard → SQL Editor → New query.
-2. Pegar TODO el contenido de `supabase/migrations/0008_obra_quotes.sql`.
-3. Run. Debe salir al final `Migration 0008 OK`.
-4. Verificar: `select column_name from information_schema.columns where table_name='quotes' and column_name in ('project_city','project_state','work_schedule');` → deben aparecer las 3.
+> Compila (type-check + build de producción OK). Julio aún NO lo probó a fondo.
 
-⚠️ **Hasta que no se aplique, el formulario se ve pero al guardar dará error** (las columnas no existen). Aplicar ANTES de probar y ANTES del push a producción.
+### 1. Generador de cantidades (Capa 2 / takeoff) — "como el ERP"
+- **Motor de fórmulas puro** `src/lib/cuantificacion/formula.ts`: tabla tipo Excel, columnas dinámicas, fórmulas `=@largo*@ancho*@alto*@piezas` (referencias por @nombre o @Letra). Evaluador SEGURO con shunting-yard (NO usa `eval()`). Regla: multiplicación pura → vacíos=1; con +,-,/ → vacíos=0. `totalGenerador` suma los parciales.
+- **Agente Cuantificador** `src/lib/agentes/cuantificador.ts` + `/api/cuantificar`: propone los renglones de medición (largo/ancho/alto/piezas) desde la descripción + área de la obra.
+- **`TarjetaCuantificacion.tsx`**: modal Excel (columnas renombrables/agregar/quitar, + Fila, 🤖 Calcular con IA, barra de total). La suma = cantidad del concepto.
+- **Integración** en `cotizar/page.tsx`: botón **"📐 Calcular"** debajo de la CANTIDAD de cada concepto. Estado `generadores` por concepto. Al "💾 Usar esta cantidad" actualiza `cantidad_estimada`.
 
-### 🔴 2. Validación visual (no se pudo hacer en sesión 08)
-El build pasa (compila + ESLint + type-check), pero NO se probó en navegador (auth + migration pendiente). Probar en local (`npm run dev`, puerto 3001) o en producción tras push:
-- Que el formulario "Datos de la obra" se vea bien en móvil y desktop.
-- Que al llenar campos el indicador de autosave diga "✓ Guardado".
-- Que al recargar (Ctrl+Shift+R) los datos persistan.
-- Que al cambiar de cotización en el sidebar, el formulario cargue los datos correctos.
-- Que el Preciador (botón 💲 Calcular en un concepto) use el estado/horario de la obra.
-
-### 🔴 3. Push a producción (requiere OK de Julio)
-`git push` → Vercel auto-deploy. NO hacer sin confirmación de Julio y DESPUÉS de aplicar la migration.
-
-### 🔧 4. Seguir con Motor APU Fase 2 (las observaciones de Julio)
-Ver `MOTOR_APU_DISENO.md` §7-bis y §7-ter. Pendientes: obs #1 (pintura cliente con rendimiento), #2/#4 (calculadoras de %), #3 (justificación por sección), #8 (encabezado tarjeta), #9 (Agente Cuantificador), #10 (calculadora de rendimiento por insumo).
-
-### 📌 5. TAREA C (sesión 07) — persistir la TPU en BD
-Hoy los precios calculados viven en estado React. Falta guardar `unit_prices` + `unit_price_items` + % de cascada. Conectar con el autosave.
+### 2. Calculadoras de rendimiento por insumo (obs #10) — en TarjetaPrecioUnitario
+- Botón **🧮** junto a la cantidad de cada insumo:
+  - **Mano de obra / equipo** (`CalculadoraRendimiento`): rendimiento_base × factores (acceso/altura/interferencia/nocturno/clima/calidad/repetitividad) = rendimiento_real; cantidad = cuadrilla ÷ rendimiento_real. Editable, recalcula en vivo.
+  - **Material** (`CalculadoraRendimientoMaterial`): cobertura (1 unidad rinde X) → cantidad = 1 ÷ cobertura. Ej. 1 gal rinde 350 sf.
+- Julio validó MO/equipo ("los demás está super"). Material recién agregado.
 
 ---
+
+## 🔥 PENDIENTES SESIÓN 09 (en orden acordado con Julio)
+
+1. **Julio prueba** el generador + las 3 calculadoras en local; si todo bien → **commit ya está hecho local, falta `git push origin main`** a producción.
+2. **Calculadora de PRECIO del insumo** (idea de Julio). Diseño ACORDADO y HONESTO:
+   - La IA **estima** precios de varias fuentes (Home Depot/Lowe's/proveedor local) → etiquetados como **"estimado, verifica con tu proveedor"** (la IA NO tiene precios en vivo — NO presentarlos como verificados).
+   - El usuario **elige** una fuente o **pone el suyo** (su cotización real). El precio elegido → `precio_base`.
+   - Botón 💲 por insumo (material/equipo). Extender `InsumoAPU` con `fuentes_precio`. Mini-agente + `/api/precio-insumo`.
+3. **"+ Agregar con IA"** (idea de Julio): al agregar un insumo, la IA sugiere opciones de insumos con su rendimiento y precio ya calculados (en vez de fila vacía).
+4. **Persistir en BD** (TAREA C): generador (tabla `generators` ya existe), TPU (`unit_prices`+`unit_price_items`), cantidades y % de cascada. Hoy todo vive en estado React (se pierde al recargar).
+5. **Programa de obra** — cronograma de PROPUESTA (alcance acordado: fechas por partida + Gantt simple editable, SIN avance real). Patrón del ERP `programacion/page.tsx` (Gantt hecho a mano).
+6. **Fase 2 motor restante** (`MOTOR_APU_DISENO.md`): obs #1 (pintura del cliente con rendimiento), #2/#4 (calculadoras de % de la cascada), #3 (justificación del Preciador por sección), #8 (encabezado de tarjeta más informativo).
+
+---
+
+## 🧠 Decisiones acumuladas sesión 08 (NO re-debatir)
+| Decisión | Detalle |
+|---|---|
+| Nombre de obra = título cotización | No se duplica; el formulario lo aclara |
+| Cascada al total | (heredado) los indirectos/utilidad al total, no por concepto |
+| Generador columnas dinámicas + IA | Como el ERP. Fórmulas `=@col`. IA propone, usuario corrige |
+| Calculadoras IA-propone-humano-corrige | Rendimiento (MO/equipo: base×factores; material: cobertura). Todo editable y trazable |
+| Precios: IA estima, NO inventa | Precios de tiendas = ESTIMADOS etiquetados; el usuario confirma con fuentes reales |
+| Validar antes de pushear features grandes | Acordado: probar en local → push. No acumular mucho sin subir |
 
 ## 🚨 Lecciones técnicas sesión 08
-1. **Supabase tipado: el `.select()` debe ser UN string literal de una línea.** Partirlo con `+` (concatenación) rompe la inferencia de tipos → `GenericStringError` (no encuentra ninguna propiedad). Backticks multilínea también pueden romperlo. Mantener el select en una sola línea literal.
-2. **Campos con CHECK constraint: convertir `""` → `null` antes de guardar.** `project_state` y `work_schedule` tienen check `(is null or in (...))`; un string vacío rompería el insert/update. Igual `work_area_sf` ("" → null, no 0).
-3. **El "nombre de la obra" NO se duplicó** — es el título de la cotización (cabecera). El formulario lo aclara con "El nombre de la obra es el título de arriba ↑" para no tener dos inputs del mismo dato.
-4. **`clone_quote_from_template` debe actualizarse al agregar columnas** que tenga sentido heredar (estado/ciudad/tipo/horario/especialidad), pero NO los datos específicos de cada obra (dirección/contacto/fechas/área).
-
----
+1. **`.select()` de Supabase debe ser un string literal de UNA línea** (no `+`) o da `GenericStringError`.
+2. **Campos con CHECK**: convertir `""` → `null` antes de guardar (estado/horario/fechas; área a `null` no `0`).
+3. **Intérprete `max_tokens` 8192** + resumen corto: obras grandes truncaban los conceptos (salían 0). Normalizar arrays `?? []`.
+4. **Evaluador de fórmulas SIN `eval()`** (shunting-yard) — seguro y testeable. Vive en `cuantificacion/formula.ts`.
+5. **Honestidad de datos**: la IA estima precios, NO los presenta como verificados de tiendas (regla research_first).
+6. **Teclado del usuario**: dejar solo `es-MX` para que funcione la ñ (tenía en-US activo).
 
 ## 📂 Archivos clave sesión 09
 | Archivo | Para qué |
 |---|---|
 | `SESION_08_INICIO.md` | **Este archivo** |
 | `MOTOR_APU_DISENO.md` | ⭐ Diseño del motor + observaciones Fase 2 |
-| `supabase/migrations/0008_obra_quotes.sql` | Migration a aplicar |
-| `src/components/FormularioObra.tsx` | Formulario de obra |
-| `src/app/cotizar/page.tsx` | Wizard (~1500 líneas) |
+| `src/lib/cuantificacion/formula.ts` | Motor de fórmulas del generador (puro) |
+| `src/lib/agentes/cuantificador.ts` | Agente Cuantificador (Capa 2) |
+| `src/components/TarjetaCuantificacion.tsx` | Tabla Excel del generador |
+| `src/components/TarjetaPrecioUnitario.tsx` | Tarjeta de costo directo + calculadoras de rendimiento |
+| `src/app/cotizar/page.tsx` | Wizard (~1600 líneas) |
 
 ---
 

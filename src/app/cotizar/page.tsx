@@ -11,7 +11,9 @@ import NavegadorSidebar from "@/components/NavegadorSidebar";
 import BuscadorConceptos from "@/components/BuscadorConceptos";
 import CabeceraCotizacion from "@/components/CabeceraCotizacion";
 import TarjetaPrecioUnitario from "@/components/TarjetaPrecioUnitario";
+import TarjetaCuantificacion from "@/components/TarjetaCuantificacion";
 import FormularioObra, { OBRA_VACIA, type DatosObra } from "@/components/FormularioObra";
+import type { GeneradorData } from "@/lib/cuantificacion/formula";
 import type { InsumoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
 import { PORCENTAJES_DEFAULT_AVANZADO, PORCENTAJES_DEFAULT_SIMPLE } from "@/lib/apu/tipos";
 import { calcularCascadaSobreSubtotal } from "@/lib/apu/calcular";
@@ -217,6 +219,12 @@ export default function CotizarPage() {
   });
   const [precios, setPrecios] = useState<Record<number, number>>({}); // costo directo unitario
   const [tpus, setTpus] = useState<Record<number, InsumoAPU[]>>({}); // insumos por concepto
+  // Generador de cantidad (Capa 2): tabla tipo Excel por concepto (indexado por idx)
+  const [cuantModal, setCuantModal] = useState<{ abierto: boolean; idx: number }>({
+    abierto: false,
+    idx: -1,
+  });
+  const [generadores, setGeneradores] = useState<Record<number, GeneradorData>>({});
   // Porcentajes de cascada a NIVEL COTIZACIÓN (una sola vez para todo)
   const [pctCotizacion, setPctCotizacion] = useState<PorcentajesAPU>(
     PORCENTAJES_DEFAULT_AVANZADO
@@ -1147,6 +1155,13 @@ export default function CotizarPage() {
                                   }
                                   className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-right text-[11px] text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
                                 />
+                                <button
+                                  onClick={() => setCuantModal({ abierto: true, idx: i })}
+                                  title="Calcular la cantidad con el generador (medidas tipo Excel)"
+                                  className="mt-1 w-full rounded border border-roca-gold/40 px-1 py-0.5 text-[9px] font-semibold text-roca-gold-soft transition hover:bg-roca-gold/10"
+                                >
+                                  {generadores[i] ? "📐 Editar medidas" : "📐 Calcular"}
+                                </button>
                               </td>
                               <td className="px-2 py-1.5 text-right align-top">
                                 {precios[i] != null ? (
@@ -1513,6 +1528,26 @@ export default function CotizarPage() {
             setTpus((prev) => ({ ...prev, [idx]: insumos }));
             setPrecios((prev) => ({ ...prev, [idx]: costoDirecto }));
             setTpuModal({ abierto: false, idx: -1 });
+          }}
+        />
+      )}
+
+      {/* Modal Tarjeta de Cuantificación (Generador — Capa 2) */}
+      {cuantModal.abierto && cuantModal.idx >= 0 && conceptos[cuantModal.idx] && (
+        <TarjetaCuantificacion
+          abierto={cuantModal.abierto}
+          descripcion={conceptos[cuantModal.idx].descripcion_es}
+          unidad={conceptos[cuantModal.idx].unidad}
+          partida={conceptos[cuantModal.idx].partida}
+          areaObra={obra.work_area_sf.trim() ? Number(obra.work_area_sf) : undefined}
+          tipoInmueble={obra.property_type || undefined}
+          generadorInicial={generadores[cuantModal.idx]}
+          onCerrar={() => setCuantModal({ abierto: false, idx: -1 })}
+          onGuardar={(genData, cantidadTotal) => {
+            const idx = cuantModal.idx;
+            setGeneradores((prev) => ({ ...prev, [idx]: genData }));
+            editarConcepto(idx, "cantidad_estimada", cantidadTotal);
+            setCuantModal({ abierto: false, idx: -1 });
           }}
         />
       )}
