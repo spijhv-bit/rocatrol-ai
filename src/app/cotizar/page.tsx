@@ -56,6 +56,8 @@ const UNIDADES_CATALOGO: { value: string; label: string }[] = [
   { value: "saco", label: "saco" },
   { value: "hr", label: "hr — hora" },
   { value: "jor", label: "jor — jornada" },
+  { value: "día", label: "día" },
+  { value: "mi", label: "mi — milla" },
   { value: "lote", label: "lote / global" },
   { value: "ls", label: "ls — lump sum" },
 ];

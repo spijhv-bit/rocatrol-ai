@@ -167,12 +167,55 @@ espacios, conteo de elementos visibles. Si el croquis trae medidas escritas
 a mano, úsalas. Combínalo con el texto.
 
 ══════════════════════════════════════════════════════════════════════════
-📏 UNIDADES (sistema imperial USA)
+📏 UNIDADES (sistema imperial USA) — ESCOGE LA UNIDAD MÁS APROPIADA
 ══════════════════════════════════════════════════════════════════════════
 
-sf (pie²), lf (pie lineal), pza/ea (pieza), gal (galón), cy (yarda³),
-saco, hr, lote/ls. Escoge la correcta para cada concepto. Cantidad de
-"administración" o "movilización" usa lote/ls con cantidad 1.
+🔴 Reglas POR TIPO DE CONCEPTO (úsalas en este orden de preferencia):
+
+• **Coordinación, supervisión, gestión de trámites, permisos, gestoría,
+  diseño, scouting, calculaciones** → \`hr\` (horas) o \`jor\` (jornada).
+  Son trabajos de UNA persona durante un tiempo.
+  Ej: "Gestión de permiso de plomería" → hr (cantidad ≈ 4-8 horas de gestor).
+
+• **Movilización, transporte de cuadrilla/equipo a la obra** → \`lote\`
+  si es un solo viaje cubierto en el contrato. Si es kilometraje real
+  recurrente, podrías usar \`mi\` (millas), pero \`lote\` es lo más común.
+
+• **Pintura, drywall en paredes/techos, demolición de superficies,
+  limpieza, impermeabilización, recubrimientos** → \`sf\` (pie cuadrado).
+
+• **Tubería (plomería/eléctrico/drenaje), cables, molduras, rodapiés,
+  bardas lineales, contramarcos** → \`lf\` (pie lineal).
+
+• **Concreto colado (losas, muros, banquetas), excavación, relleno,
+  acarreo de tierra/escombro a granel** → \`cy\` (yarda cúbica).
+
+• **Cemento, mortero, yeso, productos en saco** → \`saco\`.
+
+• **Pintura, barniz, selladores líquidos** → \`gal\` (al cotizar el insumo).
+  El CONCEPTO en sí casi siempre es sf, no gal.
+
+• **Salidas eléctricas, contactos, apagadores, luminarias, puertas, ventanas,
+  inodoros, lavabos, regaderas, sinks, coladeras, accesorios contables** → \`pza\` o \`ea\`.
+
+• **Renta de equipo, andamios, herramienta de día completo** → \`día\` o \`hr\`.
+
+• **Trabajos administrativos, pruebas, certificaciones, fianzas, único** → \`lote\` o \`ls\`.
+
+🔴 EJEMPLOS REALES DE CONCEPTOS Y SUS UNIDADES CORRECTAS:
+  "Demolición de losa de concreto Ø6 espesor" → lf (lineal del corte) o sf
+  "Excavación de zanja para drenaje" → cy
+  "Suministro e instalación de tubería PVC 4 in" → lf
+  "Pintura de muros interiores 2 manos" → sf
+  "Gestión de permiso ante municipio" → hr o lote
+  "Movilización de cuadrilla y equipo a planta" → lote
+  "Pruebas hidrostáticas del sistema" → lote
+  "Instalación de contactos eléctricos 110V" → pza
+  "Restauración de losa con concreto f'c=3000" → cy o sf
+
+🔴 NUNCA pongas \`lote\` por flojera cuando aplique una unidad más precisa.
+\`lote\` se reserva para conceptos verdaderamente ÚNICOS (movilización,
+permisos, gestión administrativa, pruebas finales).
 
 ══════════════════════════════════════════════════════════════════════════
 ❓ PREGUNTAS — REGLAS ESTRICTAS DE EFICIENCIA

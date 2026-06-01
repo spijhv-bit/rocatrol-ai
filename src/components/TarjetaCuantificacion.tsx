@@ -115,10 +115,25 @@ export default function TarjetaCuantificacion({
   }
 
   function renombrarColumna(colId: string, nombre: string) {
-    setData((d) => ({
-      ...d,
-      columnas: d.columnas.map((c) => (c.id === colId ? { ...c, nombre } : c)),
-    }));
+    setData((d) => {
+      const colVieja = d.columnas.find((c) => c.id === colId);
+      const nombreViejo = colVieja?.nombre.trim() ?? "";
+      let columnas = d.columnas.map((c) =>
+        c.id === colId ? { ...c, nombre } : c
+      );
+      // Auto-patch: si la fórmula del parcial referencia @nombreViejo, la
+      // actualizamos a @nombreNuevo para no romper el cálculo al renombrar.
+      if (nombreViejo && nombreViejo !== nombre && !colVieja?.esResultado) {
+        const escapado = nombreViejo.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+        const regex = new RegExp(`@${escapado}(?=[^a-z0-9_áéíóúñ]|$)`, "gi");
+        columnas = columnas.map((c) =>
+          c.esResultado && c.formula
+            ? { ...c, formula: c.formula.replace(regex, `@${nombre}`) }
+            : c
+        );
+      }
+      return { ...d, columnas };
+    });
   }
 
   // Cambia la fórmula del parcial (columna resultado). Se aplica a TODAS las filas.
