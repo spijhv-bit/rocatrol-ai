@@ -43,6 +43,23 @@ function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | und
   return undefined;
 }
 
+// Unidades imperiales USA estándar para conceptos de construcción.
+// Si el Intérprete devuelve una unidad fuera de esta lista, se agrega como
+// opción extra del select para no perderla.
+const UNIDADES_CATALOGO: { value: string; label: string }[] = [
+  { value: "sf", label: "sf — pie² (superficie)" },
+  { value: "lf", label: "lf — pie lineal" },
+  { value: "pza", label: "pza — pieza" },
+  { value: "ea", label: "ea — each / unidad" },
+  { value: "gal", label: "gal — galón" },
+  { value: "cy", label: "cy — yarda³ (volumen)" },
+  { value: "saco", label: "saco" },
+  { value: "hr", label: "hr — hora" },
+  { value: "jor", label: "jor — jornada" },
+  { value: "lote", label: "lote / global" },
+  { value: "ls", label: "ls — lump sum" },
+];
+
 const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB por archivo
 const MAX_ARCHIVOS = 4;
@@ -1239,13 +1256,25 @@ export default function CotizarPage() {
                                 )}
                               </td>
                               <td className="px-1 py-1.5 align-top">
-                                <input
+                                {/* Select de unidad: cambia los rótulos "por unidad" en toda la cotización */}
+                                <select
                                   value={c.unidad}
                                   onChange={(e) =>
                                     editarConcepto(i, "unidad", e.target.value)
                                   }
-                                  className="w-full rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11px] text-gray-700 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
-                                />
+                                  title="Cambia la unidad del concepto (afecta cómo se muestran los precios unitarios)"
+                                  className="w-full cursor-pointer rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11px] text-gray-700 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
+                                >
+                                  {!UNIDADES_CATALOGO.some((u) => u.value === c.unidad) &&
+                                    c.unidad && (
+                                      <option value={c.unidad}>{c.unidad}</option>
+                                    )}
+                                  {UNIDADES_CATALOGO.map((u) => (
+                                    <option key={u.value} value={u.value}>
+                                      {u.label}
+                                    </option>
+                                  ))}
+                                </select>
                               </td>
                               <td className="px-1 py-1.5 align-top">
                                 <input

@@ -150,19 +150,30 @@ export default function TarjetaPrecioUnitario({
       <div className="my-8 w-full max-w-3xl rounded-xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-gray-200 bg-gray-50 px-5 py-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-roca-gold-soft">
-              <span>💲</span>
-              <span>Costo Directo Unitario · {estado}</span>
+              <span>📋</span>
+              <span>Tarjeta de Precio Unitario · {estado}</span>
             </div>
-            <h2 className="mt-0.5 truncate text-sm font-bold text-gray-900" title={descripcion}>
+            <h2 className="mt-0.5 break-words text-sm font-bold leading-snug text-gray-900" title={descripcion}>
               {descripcion}
             </h2>
-            <p className="text-[11px] text-gray-500">
-              Unidad: {unidad}{partida ? ` · ${partida}` : ""} · Los indirectos y la utilidad se aplican al total de la cotización
+            <p className="mt-1 text-[11px] text-gray-500">
+              {partida ? `${partida} · ` : ""}Los indirectos y la utilidad se aplican al total de la cotización
             </p>
           </div>
-          <button onClick={onCerrar} className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700" aria-label="Cerrar">✕</button>
+          {/* Badge GRANDE con la unidad — para que el contratista vea claro que el precio es POR 1 unidad */}
+          <div className="flex shrink-0 items-stretch gap-2">
+            <div className="rounded-xl border-2 border-roca-gold/50 bg-roca-gold/10 px-3 py-1.5 text-center shadow-sm">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-roca-gold-soft">
+                Precio por
+              </div>
+              <div className="text-base font-extrabold text-gray-900 leading-tight">
+                1 {unidad}
+              </div>
+            </div>
+            <button onClick={onCerrar} className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-700 self-start" aria-label="Cerrar">✕</button>
+          </div>
         </div>
 
         <div className="px-5 py-4">
@@ -234,10 +245,14 @@ export default function TarjetaPrecioUnitario({
                         return (
                         <Fragment key={idx}>
                         <tr className="border-t border-gray-100 hover:bg-amber-50/40">
-                          <td className="px-2 py-1">
-                            <input value={it.descripcion} onChange={(e) => editarInsumo(idx, "descripcion", e.target.value)}
+                          <td className="px-2 py-1 align-top">
+                            <textarea
+                              value={it.descripcion}
+                              onChange={(e) => editarInsumo(idx, "descripcion", e.target.value)}
                               placeholder="Descripción del insumo"
-                              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none" />
+                              rows={Math.max(1, Math.ceil((it.descripcion?.length ?? 0) / 32))}
+                              className="block w-full resize-y whitespace-pre-wrap break-words rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] leading-snug text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
+                            />
                           </td>
                           <td className="px-1 py-1">
                             <input value={it.unidad} onChange={(e) => editarInsumo(idx, "unidad", e.target.value)}
