@@ -21,6 +21,8 @@ export interface GenColumna {
   ancho?: number; // px (opcional, para la UI)
   texto?: boolean; // columna de texto (no entra en fórmulas), ej "Referencia"
   esResultado?: boolean; // marca la columna del resultado/parcial
+  /** Solo para la columna esResultado: fórmula uniforme aplicada a todas las filas. */
+  formula?: string;
 }
 
 export interface GenFila {
@@ -212,11 +214,14 @@ export function evaluarCelda(
   return evaluarTokens(tokens);
 }
 
-// Resultado numérico de una fila (su celda de la columna marcada esResultado).
+// Resultado numérico de una fila. Prefiere la fórmula uniforme de la columna
+// esResultado (col.formula); si no hay, cae al contenido de la celda (compat
+// con filas viejas que tenían su fórmula en la celda).
 export function resultadoFila(fila: GenFila, columnas: GenColumna[]): number | null {
   const colResultado = columnas.find((c) => c.esResultado);
   if (!colResultado) return null;
-  return evaluarCelda(fila.celdas[colResultado.id] ?? "", fila, columnas);
+  const expr = colResultado.formula ?? fila.celdas[colResultado.id] ?? "";
+  return evaluarCelda(expr, fila, columnas);
 }
 
 // Total del generador = suma de los resultados de todas las filas.
@@ -250,6 +255,7 @@ export function columnasPorDefecto(): GenColumna[] {
       nombre: "Parcial",
       ancho: 110,
       esResultado: true,
+      formula: FORMULA_PARCIAL_DEFAULT,
     },
   ];
 }

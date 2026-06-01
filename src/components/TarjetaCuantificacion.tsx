@@ -60,15 +60,12 @@ export default function TarjetaCuantificacion({
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notasIA, setNotasIA] = useState<string>("");
-  // Qué celda de la columna resultado está en modo "editar fórmula".
-  const [editFormula, setEditFormula] = useState<string | null>(null);
 
   useEffect(() => {
     if (abierto) {
       setData(generadorInicial ?? generadorPorDefecto());
       setError(null);
       setNotasIA("");
-      setEditFormula(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abierto]);
@@ -121,6 +118,14 @@ export default function TarjetaCuantificacion({
     setData((d) => ({
       ...d,
       columnas: d.columnas.map((c) => (c.id === colId ? { ...c, nombre } : c)),
+    }));
+  }
+
+  // Cambia la fórmula del parcial (columna resultado). Se aplica a TODAS las filas.
+  function setFormulaParcial(formula: string) {
+    setData((d) => ({
+      ...d,
+      columnas: d.columnas.map((c) => (c.esResultado ? { ...c, formula } : c)),
     }));
   }
 
@@ -237,9 +242,22 @@ export default function TarjetaCuantificacion({
           >
             + Columna
           </button>
-          <span className="ml-auto text-[11px] text-gray-400">
-            Fórmula del parcial: edita el renglón verde (ej. =@largo*@ancho)
-          </span>
+
+          {/* Barra de fórmula del parcial (uniforme para todas las filas) */}
+          <div className="ml-auto flex flex-1 items-center gap-2 sm:max-w-[55%]">
+            <span className="whitespace-nowrap text-[11px] font-semibold text-gray-600">
+              Fórmula:
+            </span>
+            <input
+              type="text"
+              value={colResultado?.formula ?? ""}
+              onChange={(e) => setFormulaParcial(e.target.value)}
+              spellCheck={false}
+              placeholder="=@largo*@ancho*@alto*@piezas"
+              className="w-full rounded-lg border border-green-300 bg-green-50/40 px-2.5 py-1.5 font-mono text-[12px] text-gray-900 focus:border-roca-gold focus:bg-white focus:outline-none"
+              title="Fórmula del parcial. Usa @nombre para referenciar columnas (ej. =@largo*@ancho). Vacíos en multiplicación valen 1."
+            />
+          </div>
         </div>
 
         {error && (
@@ -293,28 +311,16 @@ export default function TarjetaCuantificacion({
                   </td>
                   {data.columnas.map((col) => {
                     if (col.esResultado) {
-                      const enEdicion = editFormula === fila.id;
                       const valor = resultadoFila(fila, data.columnas);
                       return (
-                        <td key={col.id} className="border-b border-gray-100 bg-green-50/50 px-1 py-1">
-                          {enEdicion ? (
-                            <input
-                              autoFocus
-                              value={fila.celdas[col.id] ?? ""}
-                              onChange={(e) => setCelda(fila.id, col.id, e.target.value)}
-                              onBlur={() => setEditFormula(null)}
-                              onKeyDown={(e) => e.key === "Enter" && setEditFormula(null)}
-                              className="w-full rounded border border-roca-gold bg-white px-1 py-0.5 font-mono text-[11px] focus:outline-none"
-                            />
-                          ) : (
-                            <button
-                              onClick={() => setEditFormula(fila.id)}
-                              title={`Fórmula: ${fila.celdas[col.id] ?? ""} (click para editar)`}
-                              className="w-full rounded px-1 py-0.5 text-right font-bold text-green-700 hover:bg-green-100"
-                            >
-                              {fmt(valor) || "—"}
-                            </button>
-                          )}
+                        <td
+                          key={col.id}
+                          className="border-b border-gray-100 bg-green-50/50 px-1 py-1 text-right"
+                          title="La fórmula del parcial se edita arriba (en la barra)"
+                        >
+                          <span className="font-bold text-green-700">
+                            {fmt(valor) || "—"}
+                          </span>
                         </td>
                       );
                     }

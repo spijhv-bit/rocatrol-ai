@@ -16,7 +16,7 @@ import FormularioObra, { OBRA_VACIA, type DatosObra } from "@/components/Formula
 import type { GeneradorData } from "@/lib/cuantificacion/formula";
 import type { InsumoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
 import { PORCENTAJES_DEFAULT_AVANZADO, PORCENTAJES_DEFAULT_SIMPLE } from "@/lib/apu/tipos";
-import { calcularCascadaSobreSubtotal } from "@/lib/apu/calcular";
+import { calcularCascadaSobreSubtotal, calcularCostoDirecto } from "@/lib/apu/calcular";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import { guiaPorEspecialidad } from "@/lib/plantillas_prompt";
 import { useAuth } from "@/lib/auth-context";
@@ -225,6 +225,12 @@ export default function CotizarPage() {
     idx: -1,
   });
   const [generadores, setGeneradores] = useState<Record<number, GeneradorData>>({});
+  // Progreso del "Calcular TODOS los precios con IA"
+  const [calcTodos, setCalcTodos] = useState<{
+    hecho: number;
+    total: number;
+    errores: number;
+  } | null>(null);
   // Porcentajes de cascada a NIVEL COTIZACIÓN (una sola vez para todo)
   const [pctCotizacion, setPctCotizacion] = useState<PorcentajesAPU>(
     PORCENTAJES_DEFAULT_AVANZADO
@@ -639,6 +645,66 @@ export default function CotizarPage() {
     setConceptos((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  // Llama al Preciador para TODOS los conceptos sin precio. Itera secuencial.
+  async function calcularTodosLosPrecios() {
+    const pendientes = conceptos
+      .map((c, i) => ({ c, i }))
+      .filter(
+        ({ c, i }) =>
+          precios[i] == null &&
+          c.descripcion_es.trim().length > 0 &&
+          (c.unidad ?? "").trim().length > 0
+      );
+    if (pendientes.length === 0) {
+      setError("Todos los conceptos ya tienen precio calculado.");
+      return;
+    }
+    setError(null);
+    setCalcTodos({ hecho: 0, total: pendientes.length, errores: 0 });
+
+    for (const { c, i } of pendientes) {
+      try {
+        const res = await fetch("/api/preciar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            descripcion: c.descripcion_es,
+            unidad: c.unidad,
+            partida: c.partida,
+            estado: obra.project_state || "TX",
+            ciudad: obra.project_city.trim() || undefined,
+            horario: obra.work_schedule || undefined,
+            modo: "avanzado",
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && Array.isArray(data.insumos)) {
+          const insumos = data.insumos as InsumoAPU[];
+          const costoDirecto = calcularCostoDirecto(insumos).costo_directo;
+          setTpus((prev) => ({ ...prev, [i]: insumos }));
+          setPrecios((prev) => ({ ...prev, [i]: costoDirecto }));
+          setCalcTodos((prev) =>
+            prev ? { ...prev, hecho: prev.hecho + 1 } : null
+          );
+        } else {
+          setCalcTodos((prev) =>
+            prev
+              ? { ...prev, hecho: prev.hecho + 1, errores: prev.errores + 1 }
+              : null
+          );
+        }
+      } catch {
+        setCalcTodos((prev) =>
+          prev
+            ? { ...prev, hecho: prev.hecho + 1, errores: prev.errores + 1 }
+            : null
+        );
+      }
+    }
+    // Auto-ocultar el indicador tras 4 segundos
+    setTimeout(() => setCalcTodos(null), 4000);
+  }
+
   function agregarConcepto() {
     setConceptos((prev) => [
       ...prev,
@@ -1020,7 +1086,7 @@ export default function CotizarPage() {
             {/* Fondo blanco = ESTE bloque es la sección de la cotización final.   */}
             <div className="overflow-hidden rounded-xl bg-white text-gray-900 shadow-lg">
               {/* Header del bloque */}
-              <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-4 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
                 <div className="flex items-center gap-2">
                   <span className="text-base">📋</span>
                   <h2 className="text-sm font-bold text-gray-800">Catálogo de conceptos</h2>
@@ -1028,10 +1094,45 @@ export default function CotizarPage() {
                     sección de la cotización
                   </span>
                 </div>
-                <span className="text-xs text-gray-500">
-                  {conceptos.length} {conceptos.length === 1 ? "concepto" : "conceptos"}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Calcular TODOS los precios con IA */}
+                  <button
+                    onClick={calcularTodosLosPrecios}
+                    disabled={!!calcTodos || conceptos.length === 0}
+                    className="rounded-lg bg-roca-gold px-3 py-1.5 text-[11px] font-semibold text-roca-dark transition hover:bg-roca-gold-soft disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Llama al Agente Preciador para cada concepto sin precio. Toma ~30-60 seg por concepto."
+                  >
+                    {calcTodos
+                      ? `🤖 Calculando ${calcTodos.hecho}/${calcTodos.total}…`
+                      : "🤖 Calcular TODOS los precios con IA"}
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    {conceptos.length} {conceptos.length === 1 ? "concepto" : "conceptos"}
+                  </span>
+                </div>
               </div>
+              {/* Barra de progreso del "Calcular TODOS" */}
+              {calcTodos && (
+                <div className="border-b border-gray-200 bg-amber-50 px-4 py-1.5 text-[11px] text-amber-800">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>
+                      Calculando precios con IA: <strong>{calcTodos.hecho}</strong> de{" "}
+                      <strong>{calcTodos.total}</strong>
+                      {calcTodos.errores > 0 && (
+                        <span className="text-red-600"> · {calcTodos.errores} con error</span>
+                      )}
+                    </span>
+                    <div className="h-1.5 flex-1 max-w-[40%] overflow-hidden rounded-full bg-amber-200">
+                      <div
+                        className="h-full bg-amber-500 transition-all"
+                        style={{
+                          width: `${calcTodos.total > 0 ? (calcTodos.hecho / calcTodos.total) * 100 : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Tabla profesional con header FIJO (sticky) al scrollear */}
               {/* Header en español (versión interna). Al exportar PDF se traducirá ES/EN */}
@@ -1119,13 +1220,17 @@ export default function CotizarPage() {
                                 {item.numero}
                               </td>
                               <td className="px-3 py-1.5 align-top">
-                                <input
+                                <textarea
                                   value={c.descripcion_es}
                                   onChange={(e) =>
                                     editarConcepto(i, "descripcion_es", e.target.value)
                                   }
                                   placeholder="Descripción del concepto (ej. Aplicación de primera mano de pintura en muros interiores)"
-                                  className="w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-[12px] leading-snug text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
+                                  rows={Math.max(
+                                    2,
+                                    Math.ceil((c.descripcion_es?.length ?? 0) / 70)
+                                  )}
+                                  className="block w-full resize-y whitespace-pre-wrap break-words rounded border border-transparent bg-transparent px-1.5 py-1 text-[12px] leading-snug text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
                                 />
                                 {c.nota && (
                                   <p className="mt-0.5 px-1.5 text-[10px] italic text-gray-400">
