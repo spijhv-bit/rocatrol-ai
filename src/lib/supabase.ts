@@ -1,13 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 
 // Sistema nuevo de Supabase 2026: sb_publishable_* (frontend) y sb_secret_* (server).
-// Reemplaza al sistema legacy de JWT (anon + service_role).
+// Reemplaza al sistema legacy de JWT (anon + service_role). Aceptamos AMBOS
+// nombres para tolerar entornos que aún no migraron las variables.
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+const publishableKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !publishableKey) {
   throw new Error(
-    "Faltan variables de Supabase. Copia .env.local.example a .env.local y llena NEXT_PUBLIC_SUPABASE_URL + NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY."
+    "Faltan variables de Supabase. Define NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (o el legacy NEXT_PUBLIC_SUPABASE_ANON_KEY)."
   );
 }
 
