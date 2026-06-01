@@ -11,6 +11,29 @@
 
 export type CategoriaInsumo = "material" | "mano_obra" | "herramienta" | "equipo";
 
+/**
+ * Fuente de precio de un insumo (material/equipo). La IA puede ESTIMAR fuentes
+ * (Home Depot, Lowe's, proveedor local) y el usuario las marca como estimadas;
+ * el usuario PUEDE agregar sus fuentes reales (su cotización con un proveedor)
+ * y marcarlas como verificadas. El `precio_base` del insumo se toma de la
+ * fuente que el usuario seleccione (o del promedio si así lo decide).
+ *
+ * REGLA DE HONESTIDAD: las fuentes con `estimado: true` NO son precios
+ * verificados en vivo. Hay que mostrarlo claramente en la UI.
+ */
+export interface FuentePrecio {
+  /** Nombre de la tienda o proveedor. */
+  fuente: string;
+  /** Precio en USD por la unidad del insumo (ej. $/gal). */
+  precio: number;
+  /** Nota libre (presentación, marca, link, etc.). */
+  nota?: string;
+  /** True si lo propuso la IA y NO está verificado en vivo. */
+  estimado?: boolean;
+  /** Marca cuál fuente se está usando como precio_base del insumo. */
+  seleccionada?: boolean;
+}
+
 /** Modo de cálculo del sobreprecio sobre el costo directo. */
 export type ModoAPU = "simple" | "avanzado";
 
@@ -45,6 +68,10 @@ export interface InsumoAPU {
   rendimiento_base?: number;
   factores?: Record<string, number>;
   rendimiento_real?: number;
+
+  // Trazabilidad del precio (material / equipo): de dónde salió.
+  // El precio_base es el "elegido"; las fuentes son las opciones consideradas.
+  fuentes_precio?: FuentePrecio[];
 }
 
 /**

@@ -16,7 +16,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { calcularCostoDirecto } from "@/lib/apu/calcular";
-import type { CategoriaInsumo, InsumoAPU } from "@/lib/apu/tipos";
+import type { CategoriaInsumo, FuentePrecio, InsumoAPU } from "@/lib/apu/tipos";
 
 interface Props {
   abierto: boolean;
@@ -80,6 +80,8 @@ export default function TarjetaPrecioUnitario({
   const [error, setError] = useState<string | null>(null);
   // Índice del insumo con la calculadora de rendimiento abierta (MO/equipo).
   const [calcIdx, setCalcIdx] = useState<number | null>(null);
+  // Índice del insumo con la calculadora de PRECIO abierta (material/equipo).
+  const [precioIdx, setPrecioIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (abierto) {
@@ -227,6 +229,8 @@ export default function TarjetaPrecioUnitario({
                           it.categoria === "mano_obra" ||
                           it.categoria === "equipo" ||
                           it.categoria === "material";
+                        const tieneFuentesPrecio =
+                          it.categoria === "material" || it.categoria === "equipo";
                         return (
                         <Fragment key={idx}>
                         <tr className="border-t border-gray-100 hover:bg-amber-50/40">
@@ -257,8 +261,19 @@ export default function TarjetaPrecioUnitario({
                             </div>
                           </td>
                           <td className="px-1 py-1">
-                            <input type="number" value={it.precio_base} onChange={(e) => editarInsumo(idx, "precio_base", e.target.value)}
-                              className="w-20 rounded border border-transparent bg-transparent px-1 py-0.5 text-right text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none" />
+                            <div className="flex items-center justify-end gap-1">
+                              <input type="number" value={it.precio_base} onChange={(e) => editarInsumo(idx, "precio_base", e.target.value)}
+                                className="w-20 rounded border border-transparent bg-transparent px-1 py-0.5 text-right text-gray-900 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none" />
+                              {tieneFuentesPrecio && (
+                                <button
+                                  onClick={() => setPrecioIdx(precioIdx === idx ? null : idx)}
+                                  title="Ver/editar las fuentes del precio (estimadas IA + tus cotizaciones)"
+                                  className={`rounded px-1 text-[11px] ${precioIdx === idx ? "bg-roca-gold/30" : "hover:bg-roca-gold/15"}`}
+                                >
+                                  💲
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="px-2 py-1 text-right font-medium text-gray-900">{usd(resultado.importes[idx] ?? 0)}</td>
                           <td className="px-1 py-1 text-center">
@@ -289,6 +304,22 @@ export default function TarjetaPrecioUnitario({
                                   onCerrar={() => setCalcIdx(null)}
                                 />
                               )}
+                            </td>
+                          </tr>
+                        )}
+                        {tieneFuentesPrecio && precioIdx === idx && (
+                          <tr>
+                            <td colSpan={6} className="bg-emerald-50/50 px-3 py-2">
+                              <CalculadoraPrecioInsumo
+                                insumo={it}
+                                estado={estado}
+                                ciudad={ciudad}
+                                onAplicar={(patch) => {
+                                  setInsumoCampos(idx, patch);
+                                  setPrecioIdx(null);
+                                }}
+                                onCerrar={() => setPrecioIdx(null)}
+                              />
                             </td>
                           </tr>
                         )}
@@ -559,6 +590,274 @@ function CalculadoraRendimientoMaterial({
         >
           Aplicar cantidad
         </button>
+      </div>
+    </div>
+  );
+}
+
+// Calculadora de PRECIO del insumo: la IA estima fuentes (etiquetadas
+// "estimado, verifica con tu proveedor"), el usuario elige una o agrega
+// la suya con su precio real verificado.
+function CalculadoraPrecioInsumo({
+  insumo,
+  estado,
+  ciudad,
+  onAplicar,
+  onCerrar,
+}: {
+  insumo: InsumoAPU;
+  estado?: "TX" | "FL" | "CA";
+  ciudad?: string;
+  onAplicar: (patch: Partial<InsumoAPU>) => void;
+  onCerrar: () => void;
+}) {
+  // Si no hay fuentes guardadas pero hay un precio_base, lo seedeo como
+  // "Precio actual" para no perderlo.
+  const fuentesIni: FuentePrecio[] =
+    insumo.fuentes_precio && insumo.fuentes_precio.length > 0
+      ? insumo.fuentes_precio
+      : insumo.precio_base > 0
+        ? [{ fuente: "Precio actual", precio: insumo.precio_base, estimado: false, seleccionada: true }]
+        : [];
+
+  const [fuentes, setFuentes] = useState<FuentePrecio[]>(fuentesIni);
+  const [nombreNuevo, setNombreNuevo] = useState("");
+  const [precioNuevo, setPrecioNuevo] = useState<string>("");
+  const [notaNueva, setNotaNueva] = useState("");
+  const [generando, setGenerando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notasIA, setNotasIA] = useState<string>("");
+
+  function seleccionar(idx: number) {
+    setFuentes((prev) => prev.map((f, i) => ({ ...f, seleccionada: i === idx })));
+  }
+  function quitar(idx: number) {
+    setFuentes((prev) => prev.filter((_, i) => i !== idx));
+  }
+  function agregar() {
+    const p = parseFloat(precioNuevo);
+    if (!nombreNuevo.trim() || !Number.isFinite(p) || p <= 0) {
+      setError("Pon un nombre de fuente y un precio mayor a 0.");
+      return;
+    }
+    setError(null);
+    const nueva: FuentePrecio = {
+      fuente: nombreNuevo.trim(),
+      precio: p,
+      nota: notaNueva.trim() || undefined,
+      estimado: false, // verificada por el usuario
+      seleccionada: true, // la nueva se selecciona auto
+    };
+    setFuentes((prev) => [
+      ...prev.map((f) => ({ ...f, seleccionada: false })),
+      nueva,
+    ]);
+    setNombreNuevo("");
+    setPrecioNuevo("");
+    setNotaNueva("");
+  }
+
+  async function estimarConIA() {
+    setGenerando(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/precio-insumo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          descripcion: insumo.descripcion,
+          unidad: insumo.unidad,
+          categoria: insumo.categoria,
+          estado,
+          ciudad,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Error al estimar.");
+      const sugeridas: FuentePrecio[] = (data.fuentes ?? []).map(
+        (f: { fuente: string; precio: number; nota?: string }) => ({
+          fuente: f.fuente,
+          precio: f.precio,
+          nota: f.nota,
+          estimado: true,
+        })
+      );
+      // Reemplaza solo las estimadas, conserva las que el usuario agregó manual.
+      setFuentes((prev) => {
+        const manuales = prev.filter((f) => !f.estimado);
+        const combinadas = [...sugeridas, ...manuales];
+        // Si ninguna estaba seleccionada, seleccionar la primera estimada.
+        if (combinadas.length > 0 && !combinadas.some((f) => f.seleccionada)) {
+          combinadas[0] = { ...combinadas[0], seleccionada: true };
+        }
+        return combinadas;
+      });
+      setNotasIA(data.notas ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error desconocido.");
+    } finally {
+      setGenerando(false);
+    }
+  }
+
+  const precioElegido = (() => {
+    const sel = fuentes.find((f) => f.seleccionada);
+    return sel ? sel.precio : 0;
+  })();
+
+  function aplicar() {
+    if (!fuentes.some((f) => f.seleccionada)) {
+      setError("Selecciona una fuente para usar su precio (o pon una propia).");
+      return;
+    }
+    onAplicar({
+      fuentes_precio: fuentes,
+      precio_base: precioElegido,
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-emerald-300 bg-white p-3 text-[11px] text-gray-700">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-bold text-emerald-700">💲 ¿De dónde sale el precio?</span>
+        <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600">✕</button>
+      </div>
+
+      <div className="mb-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-800">
+        ⚠️ Los precios marcados <strong>estimado</strong> son referencias típicas del mercado de la IA, NO verificados en vivo. Confirma siempre con tu proveedor.
+      </div>
+
+      {/* Acción: estimar con IA */}
+      <div className="mb-2 flex items-center gap-2">
+        <button
+          onClick={estimarConIA}
+          disabled={generando}
+          className="rounded-lg bg-roca-gold px-2.5 py-1 text-[11px] font-semibold text-roca-dark hover:bg-roca-gold-soft disabled:opacity-60"
+        >
+          {generando ? "Estimando…" : fuentes.some((f) => f.estimado) ? "🔄 Re-estimar con IA" : "🤖 Estimar con IA"}
+        </button>
+        <span className="text-[10px] text-gray-500">
+          Calibrado a {ciudad || estado || "TX"}
+        </span>
+      </div>
+
+      {error && (
+        <div className="mb-2 rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[10px] text-red-700">
+          {error}
+        </div>
+      )}
+
+      {/* Tabla de fuentes */}
+      {fuentes.length > 0 ? (
+        <table className="mb-2 w-full text-[11px]">
+          <thead>
+            <tr className="bg-gray-50 text-gray-600">
+              <th className="w-6 px-1 py-1"></th>
+              <th className="px-1 py-1 text-left">Fuente</th>
+              <th className="px-1 py-1 text-right">Precio</th>
+              <th className="px-1 py-1 text-left">Nota</th>
+              <th className="w-6 px-1 py-1"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {fuentes.map((f, i) => (
+              <tr key={i} className={`border-t border-gray-100 ${f.seleccionada ? "bg-emerald-50" : ""}`}>
+                <td className="px-1 py-1 text-center">
+                  <input
+                    type="radio"
+                    name="fuente-sel"
+                    checked={!!f.seleccionada}
+                    onChange={() => seleccionar(i)}
+                  />
+                </td>
+                <td className="px-1 py-1">
+                  <span className="font-semibold text-gray-800">{f.fuente}</span>
+                  {f.estimado ? (
+                    <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-px text-[8px] font-semibold uppercase tracking-wider text-amber-700">
+                      estimado
+                    </span>
+                  ) : (
+                    <span className="ml-1 rounded-full bg-green-100 px-1.5 py-px text-[8px] font-semibold uppercase tracking-wider text-green-700">
+                      tuyo
+                    </span>
+                  )}
+                </td>
+                <td className="px-1 py-1 text-right font-mono">${f.precio.toFixed(2)}</td>
+                <td className="px-1 py-1 text-gray-500">{f.nota ?? ""}</td>
+                <td className="px-1 py-1 text-center">
+                  <button onClick={() => quitar(i)} className="text-gray-300 hover:text-red-500" title="Quitar">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="mb-2 rounded-md border border-dashed border-gray-200 px-2 py-3 text-center text-[11px] text-gray-400">
+          No hay fuentes aún. Estima con IA o agrega la tuya.
+        </p>
+      )}
+
+      {/* Agregar fuente propia */}
+      <div className="mb-2 rounded-md bg-gray-50 p-2">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+          + Tu fuente (tu cotización real)
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input
+            type="text"
+            value={nombreNuevo}
+            onChange={(e) => setNombreNuevo(e.target.value)}
+            placeholder="Tienda / proveedor"
+            className="flex-1 min-w-[120px] rounded border border-gray-300 px-1.5 py-1 text-[11px] focus:border-roca-gold focus:outline-none"
+          />
+          <input
+            type="number"
+            step="0.01"
+            value={precioNuevo}
+            onChange={(e) => setPrecioNuevo(e.target.value)}
+            placeholder="Precio"
+            className="w-20 rounded border border-gray-300 px-1.5 py-1 text-right text-[11px] focus:border-roca-gold focus:outline-none"
+          />
+          <input
+            type="text"
+            value={notaNueva}
+            onChange={(e) => setNotaNueva(e.target.value)}
+            placeholder="Nota (opcional)"
+            className="flex-1 min-w-[100px] rounded border border-gray-300 px-1.5 py-1 text-[11px] focus:border-roca-gold focus:outline-none"
+          />
+          <button
+            onClick={agregar}
+            className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+          >
+            + Agregar
+          </button>
+        </div>
+      </div>
+
+      {notasIA && (
+        <div className="mb-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-[10px] text-blue-800">
+          <strong>🧠 Base de la estimación:</strong> {notasIA}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-gray-600">
+          Precio que se usará: <strong className="text-emerald-700">${precioElegido.toFixed(2)}</strong>
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={onCerrar}
+            className="rounded-lg px-3 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={aplicar}
+            className="rounded-lg bg-roca-gold px-3 py-1 text-[11px] font-semibold text-roca-dark hover:bg-roca-gold-soft"
+          >
+            Aplicar precio
+          </button>
+        </div>
       </div>
     </div>
   );
