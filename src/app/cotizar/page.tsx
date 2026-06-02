@@ -46,20 +46,22 @@ function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | und
 // Unidades imperiales USA estándar para conceptos de construcción.
 // Si el Intérprete devuelve una unidad fuera de esta lista, se agrega como
 // opción extra del select para no perderla.
-const UNIDADES_CATALOGO: { value: string; label: string }[] = [
-  { value: "sf", label: "sf — pie² (superficie)" },
-  { value: "lf", label: "lf — pie lineal" },
-  { value: "pza", label: "pza — pieza" },
-  { value: "ea", label: "ea — each / unidad" },
-  { value: "gal", label: "gal — galón" },
-  { value: "cy", label: "cy — yarda³ (volumen)" },
-  { value: "saco", label: "saco" },
-  { value: "hr", label: "hr — hora" },
-  { value: "jor", label: "jor — jornada" },
-  { value: "día", label: "día" },
-  { value: "mi", label: "mi — milla" },
-  { value: "lote", label: "lote / global" },
-  { value: "ls", label: "ls — lump sum" },
+// Etiqueta corta = lo que se ve en el select cerrado (la celda es estrecha).
+// Descripción = tooltip al hover de cada opción para que el usuario sepa qué es.
+const UNIDADES_CATALOGO: { value: string; descripcion: string }[] = [
+  { value: "sf", descripcion: "pie² (superficie)" },
+  { value: "lf", descripcion: "pie lineal" },
+  { value: "pza", descripcion: "pieza" },
+  { value: "ea", descripcion: "each / unidad" },
+  { value: "gal", descripcion: "galón" },
+  { value: "cy", descripcion: "yarda³ (volumen)" },
+  { value: "saco", descripcion: "saco (cemento, mortero…)" },
+  { value: "hr", descripcion: "hora" },
+  { value: "jor", descripcion: "jornada (8 h)" },
+  { value: "día", descripcion: "día" },
+  { value: "mi", descripcion: "milla" },
+  { value: "lote", descripcion: "lote / global" },
+  { value: "ls", descripcion: "lump sum (precio único)" },
 ];
 
 const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
@@ -1258,22 +1260,31 @@ export default function CotizarPage() {
                                 )}
                               </td>
                               <td className="px-1 py-1.5 align-top">
-                                {/* Select de unidad: cambia los rótulos "por unidad" en toda la cotización */}
+                                {/* Select de unidad: muestra solo el código corto (sf, lf, mi, etc.)
+                                    para no truncarse en columna estrecha. La descripción va como
+                                    tooltip en el option al hover, y en el title del select. */}
                                 <select
                                   value={c.unidad}
                                   onChange={(e) =>
                                     editarConcepto(i, "unidad", e.target.value)
                                   }
-                                  title="Cambia la unidad del concepto (afecta cómo se muestran los precios unitarios)"
-                                  className="w-full cursor-pointer rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11px] text-gray-700 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
+                                  title={`Unidad: ${
+                                    UNIDADES_CATALOGO.find((u) => u.value === c.unidad)
+                                      ?.descripcion ?? c.unidad
+                                  } — click para cambiar`}
+                                  className="w-full cursor-pointer rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11px] font-semibold text-gray-700 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
                                 >
                                   {!UNIDADES_CATALOGO.some((u) => u.value === c.unidad) &&
                                     c.unidad && (
                                       <option value={c.unidad}>{c.unidad}</option>
                                     )}
                                   {UNIDADES_CATALOGO.map((u) => (
-                                    <option key={u.value} value={u.value}>
-                                      {u.label}
+                                    <option
+                                      key={u.value}
+                                      value={u.value}
+                                      title={u.descripcion}
+                                    >
+                                      {u.value}
                                     </option>
                                   ))}
                                 </select>
