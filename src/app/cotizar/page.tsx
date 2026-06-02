@@ -1734,19 +1734,215 @@ function ResumenRenglonPct({
   onChange: (campo: keyof PorcentajesAPU, valor: string) => void;
   valor: string;
 }) {
+  const [calcAbierto, setCalcAbierto] = useState(false);
+  const tieneCalc = TIENE_CALCULADORA.includes(campo);
   return (
-    <div className="flex items-center justify-between py-1 text-gray-600">
-      <span className="flex items-center gap-1.5">
-        {label}
-        <input
-          type="number"
-          value={(pct[campo] as number) ?? 0}
-          onChange={(e) => onChange(campo, e.target.value)}
-          className="w-14 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-right text-xs focus:border-roca-gold focus:outline-none"
+    <div className="py-1 text-gray-600">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5">
+          {label}
+          <input
+            type="number"
+            value={(pct[campo] as number) ?? 0}
+            onChange={(e) => onChange(campo, e.target.value)}
+            className="w-14 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-right text-xs focus:border-roca-gold focus:outline-none"
+          />
+          <span className="text-[10px] text-gray-400">%</span>
+          {tieneCalc && (
+            <button
+              onClick={() => setCalcAbierto((v) => !v)}
+              title={`Calcular ${label} con la fórmula de la guía técnica`}
+              className={`ml-1 rounded px-1 text-[11px] ${calcAbierto ? "bg-roca-gold/30" : "hover:bg-roca-gold/15"}`}
+            >
+              🧮
+            </button>
+          )}
+        </span>
+        <span>{valor}</span>
+      </div>
+      {calcAbierto && tieneCalc && (
+        <CalculadoraPctCascada
+          campo={campo}
+          pctActual={(pct[campo] as number) ?? 0}
+          onAplicar={(nuevoPct) => {
+            onChange(campo, String(nuevoPct.toFixed(2)));
+            setCalcAbierto(false);
+          }}
+          onCerrar={() => setCalcAbierto(false)}
         />
-        <span className="text-[10px] text-gray-400">%</span>
-      </span>
-      <span>{valor}</span>
+      )}
+    </div>
+  );
+}
+
+// Qué campos de la cascada tienen calculadora (con fórmula de la guía).
+const TIENE_CALCULADORA: (keyof PorcentajesAPU)[] = [
+  "office_overhead_pct",
+  "field_overhead_pct",
+  "financing_pct",
+  "profit_pct",
+  "additional_pct",
+  "markup_pct",
+];
+
+// Definiciones de las calculadoras: inputs + fórmula + explicación.
+interface CalcInput {
+  key: string;
+  label: string;
+  prefijo?: string;
+  sufijo?: string;
+  default: number;
+}
+interface CalcDef {
+  titulo: string;
+  intro: string;
+  inputs: CalcInput[];
+  formula: (vals: Record<string, number>) => number;
+  formulaTexto: (vals: Record<string, number>) => string;
+}
+
+const CALC_DEFS: Partial<Record<keyof PorcentajesAPU, CalcDef>> = {
+  office_overhead_pct: {
+    titulo: "Indirectos de oficina (IO)",
+    intro: "Presupuesto anual de tu oficina ÷ volumen anual de costo directo de tus obras.",
+    inputs: [
+      { key: "presupuesto", label: "Presupuesto anual oficina", prefijo: "$", default: 165000 },
+      { key: "volumen", label: "Volumen anual de costo directo", prefijo: "$", default: 1500000 },
+    ],
+    formula: ({ presupuesto, volumen }) =>
+      volumen > 0 ? (presupuesto / volumen) * 100 : 0,
+    formulaTexto: ({ presupuesto, volumen }) =>
+      `IO = $${presupuesto.toLocaleString()} ÷ $${volumen.toLocaleString()} = ${(volumen > 0 ? (presupuesto / volumen) * 100 : 0).toFixed(2)}%`,
+  },
+  field_overhead_pct: {
+    titulo: "Indirectos de campo (IC)",
+    intro: "Indirectos del proyecto (supervisión en obra, almacén, equipos comunes) ÷ costo directo del proyecto.",
+    inputs: [
+      { key: "indirectos", label: "Indirectos del proyecto", prefijo: "$", default: 20000 },
+      { key: "directo", label: "Costo directo del proyecto", prefijo: "$", default: 250000 },
+    ],
+    formula: ({ indirectos, directo }) =>
+      directo > 0 ? (indirectos / directo) * 100 : 0,
+    formulaTexto: ({ indirectos, directo }) =>
+      `IC = $${indirectos.toLocaleString()} ÷ $${directo.toLocaleString()} = ${(directo > 0 ? (indirectos / directo) * 100 : 0).toFixed(2)}%`,
+  },
+  financing_pct: {
+    titulo: "Financiamiento (F)",
+    intro: "Si el cliente te paga tarde, pagas intereses por el capital que adelantaste. F% = tasa anual × días financiados ÷ 360.",
+    inputs: [
+      { key: "tasa", label: "Tasa anual de interés", sufijo: "%", default: 12 },
+      { key: "dias", label: "Días que tardas en cobrar", sufijo: "días", default: 60 },
+    ],
+    formula: ({ tasa, dias }) => (tasa * dias) / 360,
+    formulaTexto: ({ tasa, dias }) =>
+      `F = ${tasa}% × ${dias} días ÷ 360 = ${((tasa * dias) / 360).toFixed(2)}%`,
+  },
+  profit_pct: {
+    titulo: "Utilidad (U)",
+    intro: "Ganancia esperada del proyecto ÷ subtotal antes de utilidad (CD+IO+IC+F).",
+    inputs: [
+      { key: "utilidad", label: "Utilidad esperada", prefijo: "$", default: 40000 },
+      { key: "base", label: "Subtotal antes de utilidad (CD+IO+IC+F)", prefijo: "$", default: 270000 },
+    ],
+    formula: ({ utilidad, base }) =>
+      base > 0 ? (utilidad / base) * 100 : 0,
+    formulaTexto: ({ utilidad, base }) =>
+      `U = $${utilidad.toLocaleString()} ÷ $${base.toLocaleString()} = ${(base > 0 ? (utilidad / base) * 100 : 0).toFixed(2)}%`,
+  },
+  additional_pct: {
+    titulo: "Cargos adicionales (CA)",
+    intro: "Bonds (fianzas), seguros, permits y otros cargos del proyecto ÷ costo directo del proyecto.",
+    inputs: [
+      { key: "bonds", label: "Fianzas (bonds)", prefijo: "$", default: 0 },
+      { key: "seguros", label: "Seguros del proyecto", prefijo: "$", default: 500 },
+      { key: "permits", label: "Permisos y trámites", prefijo: "$", default: 750 },
+      { key: "directo", label: "Costo directo del proyecto", prefijo: "$", default: 250000 },
+    ],
+    formula: ({ bonds, seguros, permits, directo }) =>
+      directo > 0 ? ((bonds + seguros + permits) / directo) * 100 : 0,
+    formulaTexto: ({ bonds, seguros, permits, directo }) =>
+      `CA = ($${bonds} + $${seguros} + $${permits}) ÷ $${directo.toLocaleString()} = ${(directo > 0 ? ((bonds + seguros + permits) / directo) * 100 : 0).toFixed(2)}%`,
+  },
+  markup_pct: {
+    titulo: "Markup (indirectos + utilidad, modo simple)",
+    intro: "Estándar USA 'OH&P' es 10+10=20%. Pequeños suelen usar 20-35%. Si quieres calcularlo: (gastos generales esperados + utilidad esperada) ÷ costo directo del proyecto.",
+    inputs: [
+      { key: "gastos", label: "Gastos generales esperados", prefijo: "$", default: 30000 },
+      { key: "utilidad", label: "Utilidad esperada", prefijo: "$", default: 30000 },
+      { key: "directo", label: "Costo directo del proyecto", prefijo: "$", default: 250000 },
+    ],
+    formula: ({ gastos, utilidad, directo }) =>
+      directo > 0 ? ((gastos + utilidad) / directo) * 100 : 0,
+    formulaTexto: ({ gastos, utilidad, directo }) =>
+      `Markup = ($${gastos.toLocaleString()} + $${utilidad.toLocaleString()}) ÷ $${directo.toLocaleString()} = ${(directo > 0 ? ((gastos + utilidad) / directo) * 100 : 0).toFixed(2)}%`,
+  },
+};
+
+function CalculadoraPctCascada({
+  campo,
+  pctActual,
+  onAplicar,
+  onCerrar,
+}: {
+  campo: keyof PorcentajesAPU;
+  pctActual: number;
+  onAplicar: (nuevoPct: number) => void;
+  onCerrar: () => void;
+}) {
+  const def = CALC_DEFS[campo];
+  const [vals, setVals] = useState<Record<string, number>>(() => {
+    if (!def) return {};
+    return Object.fromEntries(def.inputs.map((i) => [i.key, i.default]));
+  });
+  if (!def) return null;
+  const resultado = def.formula(vals);
+  return (
+    <div className="mt-1 rounded-lg border border-roca-gold/30 bg-white p-3 text-[11px] text-gray-700 shadow-sm">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="font-bold text-roca-gold-soft">🧮 {def.titulo}</span>
+        <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600">✕</button>
+      </div>
+      <p className="mb-2 text-[10px] leading-snug text-gray-500">{def.intro}</p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {def.inputs.map((inp) => (
+          <label key={inp.key} className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-semibold text-gray-500">{inp.label}</span>
+            <div className="flex items-center gap-1">
+              {inp.prefijo && <span className="text-[10px] text-gray-400">{inp.prefijo}</span>}
+              <input
+                type="number"
+                step="0.01"
+                value={vals[inp.key] ?? 0}
+                onChange={(e) =>
+                  setVals((prev) => ({ ...prev, [inp.key]: Number(e.target.value) || 0 }))
+                }
+                className="w-full rounded border border-gray-300 px-1.5 py-1 text-right focus:border-roca-gold focus:outline-none"
+              />
+              {inp.sufijo && <span className="text-[10px] text-gray-400">{inp.sufijo}</span>}
+            </div>
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 rounded-md bg-gray-50 p-2 text-[11px] leading-relaxed">
+        <div className="text-gray-700">{def.formulaTexto(vals)}</div>
+        <div className="mt-1 text-[10px] text-gray-500">
+          Actualmente: <strong>{pctActual.toFixed(2)}%</strong>
+        </div>
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          onClick={onCerrar}
+          className="rounded-lg px-3 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100"
+        >
+          Cancelar
+        </button>
+        <button
+          onClick={() => onAplicar(resultado)}
+          className="rounded-lg bg-roca-gold px-3 py-1 text-[11px] font-semibold text-roca-dark hover:bg-roca-gold-soft"
+        >
+          Aplicar {resultado.toFixed(2)}%
+        </button>
+      </div>
     </div>
   );
 }
