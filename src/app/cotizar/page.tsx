@@ -1690,10 +1690,19 @@ export default function CotizarPage() {
         />
       )}
 
-      {/* Visor de Plano (Sprint 1 del Takeoff visual) */}
+      {/* Visor de Plano (Sprint 2A del Takeoff visual — gestor multi-plano) */}
       <VisorPlano
         abierto={visorPlanoAbierto}
         onCerrar={() => setVisorPlanoAbierto(false)}
+        session={session}
+        quoteId={autosave.quoteId}
+        partidas={Array.from(
+          new Set(
+            conceptos
+              .map((c) => (c.partida ?? "").trim())
+              .filter((p) => p.length > 0)
+          )
+        )}
       />
 
       {/* Modal Tarjeta de Cuantificación (Generador — Capa 2) */}
