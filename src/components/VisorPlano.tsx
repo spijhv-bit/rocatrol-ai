@@ -89,24 +89,31 @@ export default function VisorPlano({
     [planos, planoActivoId]
   );
 
-  // Auto-seleccionar primer concepto cuando se abre el visor o cambia el plano
-  // a uno con partida asignada (sugerencia inteligente).
+  // Conceptos visibles en el selector: si el plano tiene partida asignada,
+  // SOLO los conceptos de esa partida; si no, todos. Mantenemos el índice
+  // ORIGINAL del catálogo para no romper onAbrirTPU.
+  const conceptosFiltrados = useMemo(() => {
+    const conPart = (planoActivo?.partida ?? "").trim();
+    return conceptos
+      .map((c, idx) => ({ c, idx }))
+      .filter(({ c }) => !conPart || (c.partida ?? "").trim() === conPart);
+  }, [conceptos, planoActivo]);
+
+  // Si el plano activo cambia y el concepto seleccionado ya no aplica a la
+  // nueva partida, reset (la siguiente auto-selección escoge el primero visible).
   useEffect(() => {
-    if (!abierto || conceptos.length === 0) return;
+    if (conceptoIdx == null) return;
+    const sigueVisible = conceptosFiltrados.some((x) => x.idx === conceptoIdx);
+    if (!sigueVisible) setConceptoIdx(null);
+  }, [conceptosFiltrados, conceptoIdx]);
+
+  // Auto-seleccionar primer concepto visible cuando se abre el visor o cambia
+  // el plano (sugerencia inteligente).
+  useEffect(() => {
+    if (!abierto || conceptosFiltrados.length === 0) return;
     if (conceptoIdx != null && conceptos[conceptoIdx]) return;
-    // Si el plano activo tiene partida, busca el primer concepto de esa partida
-    if (planoActivo?.partida) {
-      const idx = conceptos.findIndex(
-        (c) => (c.partida ?? "").trim() === planoActivo.partida
-      );
-      if (idx >= 0) {
-        setConceptoIdx(idx);
-        return;
-      }
-    }
-    // Fallback: primer concepto
-    setConceptoIdx(0);
-  }, [abierto, planoActivo, conceptos, conceptoIdx]);
+    setConceptoIdx(conceptosFiltrados[0].idx);
+  }, [abierto, conceptosFiltrados, conceptos, conceptoIdx]);
 
   // Reset al cerrar
   useEffect(() => {
@@ -474,7 +481,10 @@ export default function VisorPlano({
                   Cargando plano…
                 </div>
               ) : (
-                <div className="flex justify-center">
+                // inline-block + min-w-full hace que el contenedor crezca al
+                // tamaño del PDF cuando hay zoom, permitiendo scroll a ambos
+                // ejes en lugar de centrar y recortar.
+                <div className="inline-block min-w-full">
                   <Document
                     file={urlFirmada}
                     onLoadSuccess={(pdf) => setTotalPaginas(pdf.numPages)}
@@ -517,11 +527,29 @@ export default function VisorPlano({
               <p className="p-4 text-center text-[11px] text-gray-400">
                 Aún no hay conceptos en el catálogo. Genera el catálogo con IA antes de cuantificar.
               </p>
+            ) : conceptosFiltrados.length === 0 ? (
+              <div className="p-4 text-center text-[11px] text-gray-500">
+                <p>
+                  No hay conceptos en la partida del plano activo
+                  {planoActivo?.partida ? (
+                    <strong> &ldquo;{planoActivo.partida}&rdquo;</strong>
+                  ) : null}
+                  .
+                </p>
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Cambia la partida del plano a la izquierda, o agrega conceptos a esa partida en el catálogo.
+                </p>
+              </div>
             ) : (
               <div className="flex flex-1 flex-col overflow-y-auto p-3">
-                {/* Selector de concepto */}
+                {/* Selector de concepto (filtrado por partida del plano activo) */}
                 <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   Escoge el concepto
+                  {planoActivo?.partida && (
+                    <span className="ml-1 font-normal normal-case text-gray-400">
+                      (solo {planoActivo.partida})
+                    </span>
+                  )}
                 </label>
                 <select
                   value={conceptoIdx ?? ""}
@@ -532,8 +560,8 @@ export default function VisorPlano({
                   className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-[11px] text-gray-800 focus:border-roca-gold focus:outline-none"
                 >
                   <option value="">— Selecciona —</option>
-                  {conceptos.map((c, i) => (
-                    <option key={i} value={i}>
+                  {conceptosFiltrados.map(({ c, idx }) => (
+                    <option key={idx} value={idx}>
                       {c.clave ? `${c.clave} — ` : ""}
                       {c.descripcion_es.length > 60
                         ? c.descripcion_es.slice(0, 57) + "…"
