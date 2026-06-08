@@ -62,6 +62,45 @@ Sesión 10 fue de **construcción del módulo Takeoff Visual** (cuantificación 
 
 ---
 
+## 🆕 BUGS / MEJORAS ANOTADOS POR JULIO AL CIERRE (atender primero en sesión 11)
+
+> Julio probó el Sprint 3.1 antes de cerrar y dejó estas 4 observaciones. Tienen prioridad sobre el Sprint 4 porque son fricción de UX en lo ya construido.
+
+### 1. 🐛 Bug: aviso "Indica una medida mayor que 0" se queda pegado
+**Síntoma:** después de cerrar/cancelar el diálogo de calibración, el banner rojo "Indica una medida mayor que 0" sigue visible arriba (en el área de errores del visor). Visible en screenshot de cierre con 6 mediciones ya hechas — el error de calibración previo nunca se limpió.
+**Causa probable:** `setError(...)` se llama desde `confirmarCalibracion()` pero no se hace `setError(null)` al cerrar el diálogo o al cambiar de modo de dibujo.
+**Fix:** limpiar `error` cuando:
+  - Se cierra/cancela el diálogo de calibración (en el handler de "Cancelar" y al setear `dialogoCalibrar(null)` después de éxito).
+  - Cambia `modoDibujo`.
+  - O auto-limpiar tras 5 segundos.
+
+### 2. 🚧 Falta: aplicar la cantidad medida al `cantidad_estimada` del catálogo
+**Síntoma:** el panel derecho muestra "Cantidad actual: 180" (del catálogo) y "TOTAL (lf): 125.14" (suma de mediciones), pero **no hay forma de aplicar el total del plano al concepto del catálogo**.
+**Diseño esperado:** un botón "↗ Aplicar al catálogo (125.14 lf)" debajo del total, o sincronización automática (preferido).
+**Esto es exactamente el corazón del Sprint 4**: conectar `total_mediciones → quote_items.quantity` (que se refleja en `cantidad_estimada` del estado React del catálogo). Hay que hacer un `UPDATE quote_items SET quantity = X WHERE id = Y` y actualizar el estado.
+
+### 3. 🚧 Mejora: aviso de "calibración completa" (H + V ambas hechas)
+**Síntoma:** el toolbar muestra `✓ H 0.1452 · V 0.1449 ft/px` pero no distingue entre **calibración parcial** (solo H o solo V, copiado al otro eje) vs **calibración completa** (ambas independientes).
+**Diseño esperado:**
+  - Mientras solo una calibración esté hecha: mostrar `⚠ Calibrado parcial (H solo)` o `⚠ Calibrado parcial (V solo)`. Sugerir calibrar el otro eje.
+  - Cuando ambas se hayan hecho: mostrar `✓ Calibración completa H+V` en verde brillante.
+  - Indicador visual de avance: pasos `1/2` y `2/2` durante el flujo.
+
+**Implementación**: agregar columnas `calibrado_x_explicito: boolean` y `calibrado_y_explicito: boolean` en `quote_plano_calibracion`, o detectar si `escala_x === escala_y` (probable copia) vs distintas (probable calibración independiente).
+
+### 4. 🚧 Mejora: snap a intersecciones al calibrar (precisión)
+**Síntoma:** al hacer 2 clicks para calibrar, el usuario quiere clickar exactamente sobre las intersecciones de cotas/líneas del plano, pero un click manual sobre PDF rasterizado tiene ±2-5 px de error.
+**Diseño esperado:** durante el modo `calibrar-h` o `calibrar-v`, cuando el cursor se acerca a un cruce de líneas detectable, hacer "snap" (atracción magnética) al punto exacto.
+**Opciones técnicas:**
+  - **Snap visual asistido**: zoom magnificador en el cursor que muestre el px exacto. Sin detección automática pero con feedback preciso.
+  - **Snap a grid** del PDF: si el plano tiene escala declarada, generar grid virtual y snapear al múltiplo más cercano.
+  - **Detección de bordes**: analizar la imagen del PDF con un canvas worker y detectar líneas/intersecciones cercanas al cursor (más complejo, mejor calidad).
+  - **Para v1 simple**: ofrecer un "marcador grande" (círculo rojo de 12 px) en el cursor durante calibración, e instrucción explícita "haz click justo en la intersección de cotas".
+
+**Recomendación**: empezar con el marcador grande + zoom magnificador. Detección automática es Fase 2.
+
+---
+
 ## 🔥 PENDIENTES SESIÓN 11 (en orden)
 
 1. **Sprint 4 del Takeoff** — el más urgente:
