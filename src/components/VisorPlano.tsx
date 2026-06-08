@@ -15,10 +15,11 @@
 //   - Sprint 5: integración con Generador (cantidad acumulada → concepto).
 // ============================================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
 import { useQuotePlanos, type QuotePlano } from "@/lib/hooks/useQuotePlanos";
+import type { ConceptoPropuesto } from "@/lib/agentes/interprete";
 
 const Document = dynamic(
   () => import("react-pdf").then((mod) => mod.Document),
@@ -42,6 +43,10 @@ interface Props {
   quoteId: string | null;
   /** Partidas del catálogo (para el dropdown de "asignar a partida"). */
   partidas: string[];
+  /** Conceptos del catálogo (para el panel derecho "concepto activo"). */
+  conceptos: ConceptoPropuesto[];
+  /** Abrir la TarjetaPrecioUnitario del concepto seleccionado (Sprint 5: drawer). */
+  onAbrirTPU?: (indiceConcepto: number) => void;
 }
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -55,6 +60,8 @@ export default function VisorPlano({
   session,
   quoteId,
   partidas,
+  conceptos,
+  onAbrirTPU,
 }: Props) {
   const { planos, loading, error: hookError, subir, obtenerUrlFirmada, renombrar, asignarPartida, borrar } =
     useQuotePlanos(session, quoteId);
@@ -71,7 +78,35 @@ export default function VisorPlano({
   const [renombrarId, setRenombrarId] = useState<string | null>(null);
   const [renombrarValor, setRenombrarValor] = useState("");
 
+  // Sprint 2B: concepto activo del catálogo (al que se asocian las mediciones)
+  const [conceptoIdx, setConceptoIdx] = useState<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Plano activo (objeto completo)
+  const planoActivo = useMemo(
+    () => planos.find((p) => p.id === planoActivoId) ?? null,
+    [planos, planoActivoId]
+  );
+
+  // Auto-seleccionar primer concepto cuando se abre el visor o cambia el plano
+  // a uno con partida asignada (sugerencia inteligente).
+  useEffect(() => {
+    if (!abierto || conceptos.length === 0) return;
+    if (conceptoIdx != null && conceptos[conceptoIdx]) return;
+    // Si el plano activo tiene partida, busca el primer concepto de esa partida
+    if (planoActivo?.partida) {
+      const idx = conceptos.findIndex(
+        (c) => (c.partida ?? "").trim() === planoActivo.partida
+      );
+      if (idx >= 0) {
+        setConceptoIdx(idx);
+        return;
+      }
+    }
+    // Fallback: primer concepto
+    setConceptoIdx(0);
+  }, [abierto, planoActivo, conceptos, conceptoIdx]);
 
   // Reset al cerrar
   useEffect(() => {
@@ -82,6 +117,7 @@ export default function VisorPlano({
       setTotalPaginas(0);
       setEscala(1);
       setError(null);
+      setConceptoIdx(null);
     }
   }, [abierto]);
 
@@ -464,6 +500,136 @@ export default function VisorPlano({
               )}
             </div>
           </main>
+
+          {/* PANEL DERECHO — Concepto activo (Sprint 2B) */}
+          <aside className="flex w-72 flex-col border-l border-gray-200 bg-gray-50">
+            <div className="border-b border-gray-200 bg-white px-3 py-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-roca-gold-soft">
+                <span>🎯</span>
+                <span>Concepto activo</span>
+              </div>
+              <p className="mt-0.5 text-[10px] text-gray-500">
+                Las mediciones que dibujes en el plano se sumarán a este concepto.
+              </p>
+            </div>
+
+            {conceptos.length === 0 ? (
+              <p className="p-4 text-center text-[11px] text-gray-400">
+                Aún no hay conceptos en el catálogo. Genera el catálogo con IA antes de cuantificar.
+              </p>
+            ) : (
+              <div className="flex flex-1 flex-col overflow-y-auto p-3">
+                {/* Selector de concepto */}
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Escoge el concepto
+                </label>
+                <select
+                  value={conceptoIdx ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setConceptoIdx(v === "" ? null : Number(v));
+                  }}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-[11px] text-gray-800 focus:border-roca-gold focus:outline-none"
+                >
+                  <option value="">— Selecciona —</option>
+                  {conceptos.map((c, i) => (
+                    <option key={i} value={i}>
+                      {c.clave ? `${c.clave} — ` : ""}
+                      {c.descripcion_es.length > 60
+                        ? c.descripcion_es.slice(0, 57) + "…"
+                        : c.descripcion_es}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Info del concepto seleccionado */}
+                {conceptoIdx !== null && conceptos[conceptoIdx] && (
+                  <>
+                    <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                        {conceptos[conceptoIdx].partida || "(sin partida)"}
+                      </p>
+                      <p className="mt-1 text-[12px] font-semibold leading-snug text-gray-900">
+                        {conceptos[conceptoIdx].descripcion_es}
+                      </p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="text-center">
+                          <p className="text-[9px] uppercase tracking-wider text-gray-400">
+                            Unidad
+                          </p>
+                          <p className="text-base font-extrabold text-roca-gold-soft">
+                            {conceptos[conceptoIdx].unidad}
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[9px] uppercase tracking-wider text-gray-400">
+                            Cantidad actual
+                          </p>
+                          <p className="text-base font-extrabold text-gray-900">
+                            {conceptos[conceptoIdx].cantidad_estimada || 0}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Tabla de mediciones (placeholder Sprint 2B) */}
+                    <div className="mt-3 flex-1">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                          📏 Mediciones
+                        </h3>
+                        <span className="rounded-full bg-amber-100 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-amber-800">
+                          Sprint 2B
+                        </span>
+                      </div>
+                      <div className="mt-2 overflow-hidden rounded-lg border border-dashed border-gray-300 bg-white">
+                        <table className="w-full text-[10px]">
+                          <thead className="bg-gray-50 text-gray-600">
+                            <tr>
+                              <th className="px-2 py-1 text-left font-semibold">#</th>
+                              <th className="px-2 py-1 text-left font-semibold">Tipo</th>
+                              <th className="px-2 py-1 text-right font-semibold">Valor</th>
+                              <th className="w-5"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td colSpan={4} className="px-2 py-6 text-center text-[10px] italic text-gray-400">
+                                Aún no hay mediciones.<br />
+                                Las herramientas de medición (línea, área, conteo) llegan en el Sprint 3.
+                              </td>
+                            </tr>
+                          </tbody>
+                          <tfoot className="bg-gray-50">
+                            <tr>
+                              <td colSpan={2} className="px-2 py-1 text-right font-semibold text-gray-600">
+                                TOTAL ({conceptos[conceptoIdx].unidad}):
+                              </td>
+                              <td className="px-2 py-1 text-right font-bold text-roca-gold-soft">
+                                0
+                              </td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Acción: Ver TPU del concepto */}
+                    {onAbrirTPU && (
+                      <button
+                        onClick={() => onAbrirTPU(conceptoIdx)}
+                        className="mt-3 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                        title="Abrir la tarjeta de precio unitario de este concepto"
+                      >
+                        💲 Ver Tarjeta de Precio Unitario
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </aside>
         </div>
 
         {/* Footer */}

@@ -1690,7 +1690,7 @@ export default function CotizarPage() {
         />
       )}
 
-      {/* Visor de Plano (Sprint 2A del Takeoff visual — gestor multi-plano) */}
+      {/* Visor de Plano (Sprint 2B — gestor + panel concepto activo) */}
       <VisorPlano
         abierto={visorPlanoAbierto}
         onCerrar={() => setVisorPlanoAbierto(false)}
@@ -1703,6 +1703,11 @@ export default function CotizarPage() {
               .filter((p) => p.length > 0)
           )
         )}
+        conceptos={conceptos}
+        onAbrirTPU={(idx) => {
+          setVisorPlanoAbierto(false);
+          setTpuModal({ abierto: true, idx });
+        }}
       />
 
       {/* Modal Tarjeta de Cuantificación (Generador — Capa 2) */}
