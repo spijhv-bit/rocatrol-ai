@@ -48,6 +48,8 @@ export interface UseMedicionesResult {
     puntos: [number, number][];
     nota?: string;
   }) => Promise<Medicion | null>;
+  /** Actualiza la nota/etiqueta de una medición existente. */
+  actualizarNota: (id: string, nota: string) => Promise<void>;
   borrar: (id: string) => Promise<void>;
   /** Total numérico de las mediciones de un concepto específico. */
   totalConcepto: (quote_item_id: string) => number;
@@ -157,6 +159,22 @@ export function useMediciones(
     [quoteId]
   );
 
+  const actualizarNota = useCallback(async (id: string, nota: string) => {
+    setError(null);
+    const limpia = nota.trim() || null;
+    const { error: e } = await supabase
+      .from("quote_mediciones")
+      .update({ nota: limpia, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (e) {
+      setError(`No se pudo actualizar la etiqueta: ${e.message}`);
+      return;
+    }
+    setMediciones((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, nota: limpia } : m))
+    );
+  }, []);
+
   const borrar = useCallback(async (id: string) => {
     setError(null);
     const { error: e } = await supabase
@@ -179,5 +197,14 @@ export function useMediciones(
     [mediciones]
   );
 
-  return { mediciones, loading, error, agregar, borrar, totalConcepto, refresh };
+  return {
+    mediciones,
+    loading,
+    error,
+    agregar,
+    actualizarNota,
+    borrar,
+    totalConcepto,
+    refresh,
+  };
 }

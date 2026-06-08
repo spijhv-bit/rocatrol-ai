@@ -37,13 +37,13 @@ export interface UseCalibracionResult {
   loading: boolean;
   error: string | null;
   /**
-   * Guarda una nueva calibración. distancia_px = √((x2-x1)² + (y2-y1)²).
-   * medida_real es lo que el usuario teclea (ej. 12 ft).
-   * Si la línea es perfectamente horizontal o vertical, escala_x y escala_y
-   * pueden separarse; por simplicidad, en v1 se usa la misma escala para ambos
-   * (medida_real / distancia_px).
+   * Guarda una nueva calibración para un EJE específico.
+   * `eje: "x"` actualiza solo escala_x; `eje: "y"` actualiza solo escala_y.
+   * `eje: "both"` actualiza ambos al mismo valor.
+   * Mantiene la otra escala si ya existía.
    */
   guardar: (params: {
+    eje: "x" | "y" | "both";
     distancia_px: number;
     medida_real: number;
     unidad: UnidadCalibracion;
@@ -115,10 +115,12 @@ export function useCalibracionPlano(
 
   const guardar = useCallback(
     async ({
+      eje,
       distancia_px,
       medida_real,
       unidad,
     }: {
+      eje: "x" | "y" | "both";
       distancia_px: number;
       medida_real: number;
       unidad: UnidadCalibracion;
@@ -137,8 +139,16 @@ export function useCalibracionPlano(
         return;
       }
       const escala = medida_real / distancia_px;
+      // Mantén la otra escala si ya existía; si no, copia esta para no dejarla 0.
+      const escala_x =
+        eje === "x" || eje === "both"
+          ? escala
+          : (calibracion?.escala_x ?? escala);
+      const escala_y =
+        eje === "y" || eje === "both"
+          ? escala
+          : (calibracion?.escala_y ?? escala);
       setError(null);
-      // upsert por (plano_id, pagina)
       const { data, error: e } = await supabase
         .from("quote_plano_calibracion")
         .upsert(
@@ -146,8 +156,8 @@ export function useCalibracionPlano(
             plano_id: planoId,
             tenant_id,
             pagina,
-            escala_x: escala,
-            escala_y: escala,
+            escala_x,
+            escala_y,
             unidad,
           },
           { onConflict: "plano_id,pagina" }
@@ -160,7 +170,7 @@ export function useCalibracionPlano(
       }
       setCalibracion(data as CalibracionPlano);
     },
-    [planoId, pagina]
+    [planoId, pagina, calibracion]
   );
 
   const borrar = useCallback(async () => {

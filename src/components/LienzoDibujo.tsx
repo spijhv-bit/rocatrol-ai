@@ -19,7 +19,7 @@ import { useState } from "react";
 import { Stage, Layer, Line, Circle, Text, Group, Rect } from "react-konva";
 import type Konva from "konva";
 
-export type ModoDibujo = "mover" | "calibrar" | "linea" | "polilinea";
+export type ModoDibujo = "mover" | "calibrar-h" | "calibrar-v" | "linea" | "polilinea" | "conteo";
 
 export interface MedicionDibujo {
   id: string;
@@ -27,6 +27,12 @@ export interface MedicionDibujo {
   puntos: [number, number][]; // en coords BASE del PDF (scale=1)
   valor: number;
   unidad: string;
+  /** Color hex/rgb del concepto al que pertenece. */
+  color?: string;
+  /** Nota/etiqueta opcional. */
+  nota?: string | null;
+  /** True si esta medición pertenece al concepto activo (más prominente). */
+  activa?: boolean;
 }
 
 interface Props {
@@ -37,18 +43,26 @@ interface Props {
   /** Zoom actual del PDF (1.0 = 100%). Para convertir coords base a coords del Stage. */
   zoomPDF: number;
   modo: ModoDibujo;
-  /** Factor escala_x ya calibrado: unidades_reales por pixel (en coords base). null si no calibrado. */
-  escalaUnidades: number | null;
+  /** Escala horizontal calibrada (unidades reales por px base). null si no calibrada. */
+  escalaX: number | null;
+  /** Escala vertical calibrada (unidades reales por px base). null si no calibrada. */
+  escalaY: number | null;
   unidad: string; // 'ft' | 'm'
   /** Mediciones ya guardadas (en coords BASE), para re-dibujar. */
   mediciones: MedicionDibujo[];
-  onCalibrar: (distancia_px_base: number, puntos_base: [number, number][]) => void;
+  onCalibrar: (
+    eje: "x" | "y",
+    distancia_px_base: number,
+    puntos_base: [number, number][]
+  ) => void;
   onLinea: (valor: number, distancia_px_base: number, puntos_base: [number, number][]) => void;
   onPolilinea: (
     valor: number,
     distancia_px_base: number,
     puntos_base: [number, number][]
   ) => void;
+  /** Conteo: cada click agrega una pieza (medición tipo='conteo' con 1 punto y valor=1). */
+  onConteo: (punto_base: [number, number]) => void;
 }
 
 function distEuclidiana(p: [number, number], q: [number, number]) {
@@ -65,13 +79,23 @@ export default function LienzoDibujo({
   height,
   zoomPDF,
   modo,
-  escalaUnidades,
+  escalaX,
+  escalaY,
   unidad,
   mediciones,
   onCalibrar,
   onLinea,
   onPolilinea,
+  onConteo,
 }: Props) {
+  // Escala "promedio" para mediciones diagonales (línea/polilínea genérica).
+  // Si solo una eje está calibrada, usa esa. Si ambas, promedia.
+  const escalaPromedio =
+    escalaX != null && escalaY != null
+      ? (escalaX + escalaY) / 2
+      : escalaX ?? escalaY ?? null;
+  // referencia rápida usada en handlers
+  void unidad;
   // Puntos temporales en coords del STAGE (con zoom aplicado)
   const [puntosTemp, setPuntosTemp] = useState<[number, number][]>([]);
   const [mousePos, setMousePos] = useState<[number, number] | null>(null);
@@ -98,12 +122,15 @@ export default function LienzoDibujo({
     if (!pos) return;
     const nuevo: [number, number] = [pos.x, pos.y];
 
-    if (modo === "calibrar") {
+    if (modo === "calibrar-h" || modo === "calibrar-v") {
       const nuevos = [...puntosTemp, nuevo];
       if (nuevos.length === 2) {
-        const dPx = distEuclidiana(nuevos[0], nuevos[1]) / zoomPDF; // px en base
+        // Para calibración: usamos la distancia REAL marcada (no solo el eje),
+        // y la asignamos al eje pedido. Esto permite calibrar con una línea
+        // ligeramente inclinada y aun así obtener la escala del eje correcto.
+        const dPx = distEuclidiana(nuevos[0], nuevos[1]) / zoomPDF;
         const puntosBase: [number, number][] = nuevos.map((p) => stageToBase(p));
-        onCalibrar(dPx, puntosBase);
+        onCalibrar(modo === "calibrar-h" ? "x" : "y", dPx, puntosBase);
         setPuntosTemp([]);
       } else {
         setPuntosTemp(nuevos);
@@ -111,14 +138,32 @@ export default function LienzoDibujo({
       return;
     }
 
+    if (modo === "conteo") {
+      const puntoBase = stageToBase(nuevo);
+      onConteo(puntoBase);
+      // En conteo NO mantenemos puntosTemp (cada click es independiente)
+      return;
+    }
+
     if (modo === "linea") {
-      if (escalaUnidades == null) return; // bloqueado en UI
+      if (escalaPromedio == null) return; // bloqueado en UI
       const nuevos = [...puntosTemp, nuevo];
       if (nuevos.length === 2) {
-        const dPxBase = distEuclidiana(nuevos[0], nuevos[1]) / zoomPDF;
-        const valor = dPxBase * escalaUnidades;
-        const puntosBase: [number, number][] = nuevos.map((p) => stageToBase(p));
-        onLinea(valor, dPxBase, puntosBase);
+        // Calculamos el valor con escala diferenciada por eje:
+        // dx_real = |Δx| × escalaX, dy_real = |Δy| × escalaY → dist = √(dx² + dy²)
+        const [a, b] = nuevos.map((p) => stageToBase(p)) as [
+          [number, number],
+          [number, number],
+        ];
+        const dxPx = Math.abs(b[0] - a[0]);
+        const dyPx = Math.abs(b[1] - a[1]);
+        const sx = escalaX ?? escalaPromedio;
+        const sy = escalaY ?? escalaPromedio;
+        const dxReal = dxPx * sx;
+        const dyReal = dyPx * sy;
+        const valor = Math.sqrt(dxReal * dxReal + dyReal * dyReal);
+        const dPxBase = distEuclidiana(a, b);
+        onLinea(valor, dPxBase, [a, b]);
         setPuntosTemp([]);
       } else {
         setPuntosTemp(nuevos);
@@ -127,20 +172,31 @@ export default function LienzoDibujo({
     }
 
     if (modo === "polilinea") {
-      if (escalaUnidades == null) return;
+      if (escalaPromedio == null) return;
       setPuntosTemp((prev) => [...prev, nuevo]);
       return;
     }
   }
 
   function handleTerminarPolilinea() {
-    if (modo !== "polilinea" || puntosTemp.length < 2 || escalaUnidades == null) {
+    if (modo !== "polilinea" || puntosTemp.length < 2 || escalaPromedio == null) {
       setPuntosTemp([]);
       return;
     }
-    const dPxBaseTotal = distPolilinea(puntosTemp) / zoomPDF;
-    const valor = dPxBaseTotal * escalaUnidades;
+    // Suma de segmentos, cada uno con escala diferenciada por eje.
     const puntosBase: [number, number][] = puntosTemp.map((p) => stageToBase(p));
+    let valor = 0;
+    let dPxBaseTotal = 0;
+    const sx = escalaX ?? escalaPromedio;
+    const sy = escalaY ?? escalaPromedio;
+    for (let i = 1; i < puntosBase.length; i++) {
+      const a = puntosBase[i - 1];
+      const b = puntosBase[i];
+      const dxPx = Math.abs(b[0] - a[0]);
+      const dyPx = Math.abs(b[1] - a[1]);
+      valor += Math.sqrt((dxPx * sx) ** 2 + (dyPx * sy) ** 2);
+      dPxBaseTotal += distEuclidiana(a, b);
+    }
     onPolilinea(valor, dPxBaseTotal, puntosBase);
     setPuntosTemp([]);
   }
@@ -154,35 +210,39 @@ export default function LienzoDibujo({
     setMousePos([pos.x, pos.y]);
   }
 
-  // Si modo es "mover", el lienzo NO debe interceptar clicks (pasa al PDF).
-  const pointerEvents = modo === "mover" ? "none" : "auto";
+  // Si modo es "mover", el lienzo NO debe interceptar clicks ni eventos
+  // (el scroll/pan del PDF padre debe funcionar).
+  const esMover = modo === "mover";
+  const pointerEvents = esMover ? "none" : "auto";
 
   // Estilo del cursor según modo
-  const cursor =
-    modo === "mover"
-      ? "default"
-      : modo === "calibrar"
-        ? "crosshair"
-        : modo === "linea" || modo === "polilinea"
-          ? "crosshair"
-          : "default";
+  const cursor = esMover ? "default" : "crosshair";
 
   // Texto auxiliar mientras dibuja
   function tipUI(): string {
     if (modo === "mover") return "";
-    if (modo === "calibrar") {
-      if (puntosTemp.length === 0) return "1) Click en el inicio de una distancia conocida";
-      if (puntosTemp.length === 1) return "2) Click en el final";
+    if (modo === "calibrar-h") {
+      if (puntosTemp.length === 0) return "📏 H: 1) Click en el inicio de una distancia HORIZONTAL conocida";
+      if (puntosTemp.length === 1) return "📏 H: 2) Click en el final de la distancia horizontal";
       return "";
     }
+    if (modo === "calibrar-v") {
+      if (puntosTemp.length === 0) return "📐 V: 1) Click en el inicio de una distancia VERTICAL conocida";
+      if (puntosTemp.length === 1) return "📐 V: 2) Click en el final de la distancia vertical";
+      return "";
+    }
+    if (modo === "conteo") {
+      if (escalaPromedio == null) return "Calibra primero (al menos un eje) para que el conteo se asocie";
+      return "Click para sumar piezas · cada click cuenta 1";
+    }
     if (modo === "linea") {
-      if (escalaUnidades == null) return "Calibra primero la escala (botón 📏 Calibrar)";
+      if (escalaPromedio == null) return "Calibra primero la escala (botón 📏 Calibrar H o V)";
       if (puntosTemp.length === 0) return "1) Click en el inicio de la línea";
       if (puntosTemp.length === 1) return "2) Click en el final";
       return "";
     }
     if (modo === "polilinea") {
-      if (escalaUnidades == null) return "Calibra primero la escala";
+      if (escalaPromedio == null) return "Calibra primero la escala";
       if (puntosTemp.length === 0) return "Click para empezar la polilínea";
       return `${puntosTemp.length} punto${puntosTemp.length === 1 ? "" : "s"} marcado${puntosTemp.length === 1 ? "" : "s"} · sigue clicando o dale Terminar`;
     }
@@ -205,31 +265,81 @@ export default function LienzoDibujo({
         height,
         pointerEvents,
         cursor,
+        // userSelect off para que el drag en el PDF no seleccione texto del lienzo
+        userSelect: "none",
       }}
     >
-      <Stage width={width} height={height} onMouseDown={handleClick} onMouseMove={handleMouseMove}>
+      <Stage
+        width={width}
+        height={height}
+        onMouseDown={esMover ? undefined : handleClick}
+        onMouseMove={esMover ? undefined : handleMouseMove}
+        listening={!esMover}
+      >
         <Layer listening={false}>
           {/* Mediciones ya guardadas */}
-          {mediciones.map((m) => {
+          {mediciones.map((m, idxMed) => {
             const pts = m.puntos.map((p) => baseToStage(p));
             const flat = pts.flat();
-            const color = m.tipo === "linea" || m.tipo === "polilinea" ? "#2563eb" : "#059669";
+            const color = m.color || "#2563eb";
+            const opacidad = m.activa === false ? 0.35 : 1;
+            const grosor = m.activa === false ? 1.5 : 2.5;
+            // Etiqueta combinada: nota del usuario o número auto
+            const etiquetaTexto = m.nota
+              ? m.nota
+              : m.tipo === "conteo"
+                ? `${idxMed + 1}`
+                : `${m.valor.toFixed(2)} ${m.unidad}`;
+
+            if (m.tipo === "conteo") {
+              // Conteo: cada punto se renderiza como un círculo numerado
+              return (
+                <Group key={m.id} opacity={opacidad}>
+                  {pts.map((p, i) => (
+                    <Group key={i}>
+                      <Circle x={p[0]} y={p[1]} radius={10} fill={color} opacity={0.85} />
+                      <Text
+                        x={p[0] - 10}
+                        y={p[1] - 6}
+                        width={20}
+                        height={12}
+                        text={String(idxMed + 1)}
+                        fontSize={11}
+                        fontStyle="bold"
+                        fill="white"
+                        align="center"
+                        verticalAlign="middle"
+                      />
+                    </Group>
+                  ))}
+                </Group>
+              );
+            }
+
             return (
-              <Group key={m.id}>
-                <Line points={flat} stroke={color} strokeWidth={2} />
+              <Group key={m.id} opacity={opacidad}>
+                <Line points={flat} stroke={color} strokeWidth={grosor} lineCap="round" lineJoin="round" />
                 {pts.map((p, i) => (
                   <Circle key={i} x={p[0]} y={p[1]} radius={3} fill={color} />
                 ))}
                 {pts.length > 0 && (
-                  <Group x={pts[0][0] + 6} y={pts[0][1] - 18}>
-                    <Rect width={70} height={16} fill="white" stroke={color} cornerRadius={3} opacity={0.9} />
+                  <Group x={pts[0][0] + 6} y={pts[0][1] - 20}>
+                    <Rect
+                      width={Math.max(70, etiquetaTexto.length * 6 + 12)}
+                      height={16}
+                      fill="white"
+                      stroke={color}
+                      cornerRadius={3}
+                      opacity={0.95}
+                    />
                     <Text
                       x={4}
                       y={2}
-                      width={62}
+                      width={Math.max(62, etiquetaTexto.length * 6 + 4)}
                       height={14}
-                      text={`${m.valor.toFixed(2)} ${m.unidad}`}
+                      text={etiquetaTexto}
                       fontSize={11}
+                      fontStyle={m.activa === false ? "normal" : "bold"}
                       fill={color}
                       align="center"
                       verticalAlign="middle"

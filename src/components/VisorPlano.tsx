@@ -70,8 +70,20 @@ function mapearUnidadLineal(unidadCalib: string, unidadConcepto: string): string
   if (unidadConcepto === "lf" && unidadCalib === "ft") return "lf";
   if (unidadConcepto === "ft" && unidadCalib === "ft") return "ft";
   if (unidadConcepto === "m" && unidadCalib === "m") return "m";
-  if (unidadConcepto && /^(lf|ft|m|in|cm)$/.test(unidadConcepto)) return unidadConcepto;
+  if (unidadConcepto && /^(lf|ft|m|in|cm|pza|ea)$/.test(unidadConcepto)) return unidadConcepto;
   return unidadCalib;
+}
+
+// Genera un color HSL determinístico a partir de la clave del concepto.
+// Mismo concepto → siempre el mismo color, distinguible entre conceptos.
+function colorParaConcepto(clave: string | undefined | null): string {
+  if (!clave) return "#2563eb";
+  let hash = 0;
+  for (let i = 0; i < clave.length; i++) {
+    hash = (hash * 31 + clave.charCodeAt(i)) & 0xffffffff;
+  }
+  const hue = ((Math.abs(hash) % 360) + 360) % 360;
+  return `hsl(${hue}, 70%, 42%)`;
 }
 
 export default function VisorPlano({
@@ -106,10 +118,14 @@ export default function VisorPlano({
   const [pdfDims, setPdfDims] = useState<{ width: number; height: number } | null>(null);
   // Dialogo abierto tras 2 clicks de calibración: pide medida real
   const [dialogoCalibrar, setDialogoCalibrar] = useState<{
+    eje: "x" | "y";
     distancia_px_base: number;
     puntos_base: [number, number][];
   } | null>(null);
-  const [medidaRealStr, setMedidaRealStr] = useState("");
+  // Para sistema imperial: pies + pulgadas separados. Para métrico: solo m.
+  const [calibPies, setCalibPies] = useState("");
+  const [calibPulgadas, setCalibPulgadas] = useState("");
+  const [calibMetros, setCalibMetros] = useState("");
   const [unidadCalibracion, setUnidadCalibracion] = useState<UnidadCalibracion>("ft");
   // Map clave → quote_item_id (para asociar mediciones al concepto real persistido)
   const [claveToId, setClaveToId] = useState<Record<string, string>>({});
@@ -201,18 +217,41 @@ export default function VisorPlano({
     [medicionesDelConcepto]
   );
 
-  // Adaptamos las mediciones al formato que espera el lienzo (puntos como tuplas)
-  const medicionesParaLienzo = useMemo<MedicionDibujo[]>(
-    () =>
-      medicionesDelConcepto.map((m) => ({
-        id: m.id,
-        tipo: m.tipo,
-        puntos: m.puntos as [number, number][],
-        valor: Number(m.valor),
-        unidad: m.unidad,
-      })),
-    [medicionesDelConcepto]
-  );
+  // Map quote_item_id → clave del concepto (inversa de claveToId) para
+  // saber con qué clave colorear cada medición.
+  const idToClave = useMemo<Record<string, string>>(() => {
+    const inv: Record<string, string> = {};
+    for (const [clave, id] of Object.entries(claveToId)) inv[id] = clave;
+    return inv;
+  }, [claveToId]);
+
+  // TODAS las mediciones de este plano+página (no solo del concepto activo),
+  // para mostrarlas con color por concepto (las del activo más prominente).
+  const medicionesParaLienzo = useMemo<MedicionDibujo[]>(() => {
+    return medicionesHook.mediciones
+      .filter((m) => m.plano_id === planoActivoId && m.pagina === paginaActual)
+      .map((m) => {
+        const clave =
+          m.quote_item_id != null ? idToClave[m.quote_item_id] : undefined;
+        const esActiva = m.quote_item_id === conceptoActivoQuoteItemId;
+        return {
+          id: m.id,
+          tipo: m.tipo,
+          puntos: m.puntos as [number, number][],
+          valor: Number(m.valor),
+          unidad: m.unidad,
+          color: colorParaConcepto(clave),
+          nota: m.nota,
+          activa: esActiva,
+        };
+      });
+  }, [
+    medicionesHook.mediciones,
+    planoActivoId,
+    paginaActual,
+    conceptoActivoQuoteItemId,
+    idToClave,
+  ]);
 
   // Reset al cerrar
   useEffect(() => {
@@ -318,27 +357,47 @@ export default function VisorPlano({
   // Handler del Lienzo: 2 clicks de calibración → abre dialogo para que el
   // usuario introduzca la medida real.
   const onLienzoCalibrar = useCallback(
-    (distancia_px_base: number, puntos_base: [number, number][]) => {
-      setDialogoCalibrar({ distancia_px_base, puntos_base });
-      setMedidaRealStr("");
+    (
+      eje: "x" | "y",
+      distancia_px_base: number,
+      puntos_base: [number, number][]
+    ) => {
+      setDialogoCalibrar({ eje, distancia_px_base, puntos_base });
+      setCalibPies("");
+      setCalibPulgadas("");
+      setCalibMetros("");
     },
     []
   );
 
   async function confirmarCalibracion() {
     if (!dialogoCalibrar) return;
-    const medida = Number(medidaRealStr);
+    let medida = 0;
+    if (unidadCalibracion === "ft") {
+      const pies = Number(calibPies) || 0;
+      const pulgs = Number(calibPulgadas) || 0;
+      medida = pies + pulgs / 12;
+    } else if (unidadCalibracion === "m") {
+      medida = Number(calibMetros) || 0;
+    } else if (unidadCalibracion === "in") {
+      medida = Number(calibPulgadas) || 0;
+    } else if (unidadCalibracion === "cm") {
+      medida = Number(calibMetros) || 0;
+    }
     if (!Number.isFinite(medida) || medida <= 0) {
-      setError("La medida debe ser un número mayor que 0.");
+      setError("Indica una medida mayor que 0.");
       return;
     }
     await calibracionHook.guardar({
+      eje: dialogoCalibrar.eje,
       distancia_px: dialogoCalibrar.distancia_px_base,
       medida_real: medida,
       unidad: unidadCalibracion,
     });
     setDialogoCalibrar(null);
-    setMedidaRealStr("");
+    setCalibPies("");
+    setCalibPulgadas("");
+    setCalibMetros("");
     setModoDibujo("mover"); // listo, vuelve a navegación
   }
 
@@ -382,6 +441,39 @@ export default function VisorPlano({
       medicionesHook,
       conceptos,
       conceptoIdx,
+      paginaActual,
+    ]
+  );
+
+  // Conteo: cada click agrega una medición con valor=1 unidad=pza
+  const onLienzoConteo = useCallback(
+    async (punto_base: [number, number]) => {
+      if (!quoteId || !planoActivoId) return;
+      if (!conceptoActivoQuoteItemId) {
+        setError("Selecciona un concepto del catálogo antes de contar piezas.");
+        return;
+      }
+      const unidadConcepto = conceptoIdx != null ? conceptos[conceptoIdx].unidad : "pza";
+      const unidadFinal = /^(pza|ea|lote|ls)$/.test(unidadConcepto)
+        ? unidadConcepto
+        : "pza";
+      await medicionesHook.agregar({
+        plano_id: planoActivoId,
+        quote_item_id: conceptoActivoQuoteItemId,
+        pagina: paginaActual,
+        tipo: "conteo",
+        valor: 1,
+        unidad: unidadFinal,
+        puntos: [punto_base],
+      });
+    },
+    [
+      quoteId,
+      planoActivoId,
+      conceptoActivoQuoteItemId,
+      conceptoIdx,
+      conceptos,
+      medicionesHook,
       paginaActual,
     ]
   );
@@ -642,16 +734,23 @@ export default function VisorPlano({
                     label="Mover"
                   />
                   <BotonModo
-                    activo={modoDibujo === "calibrar"}
-                    onClick={() => setModoDibujo("calibrar")}
+                    activo={modoDibujo === "calibrar-h"}
+                    onClick={() => setModoDibujo("calibrar-h")}
                     icono="📏"
-                    label={calibracionHook.calibracion ? "Recalibrar" : "Calibrar"}
+                    label="Calibrar H"
+                    color="amber"
+                  />
+                  <BotonModo
+                    activo={modoDibujo === "calibrar-v"}
+                    onClick={() => setModoDibujo("calibrar-v")}
+                    icono="📐"
+                    label="Calibrar V"
                     color="amber"
                   />
                   <BotonModo
                     activo={modoDibujo === "linea"}
                     onClick={() => setModoDibujo("linea")}
-                    icono="📐"
+                    icono="📏"
                     label="Línea"
                     disabled={!calibracionHook.calibracion}
                   />
@@ -662,13 +761,21 @@ export default function VisorPlano({
                     label="Polilínea"
                     disabled={!calibracionHook.calibracion}
                   />
+                  <BotonModo
+                    activo={modoDibujo === "conteo"}
+                    onClick={() => setModoDibujo("conteo")}
+                    icono="👆"
+                    label="Piezas"
+                    disabled={!calibracionHook.calibracion}
+                  />
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
-                  {/* Estado de calibración */}
+                  {/* Estado de calibración (H/V) */}
                   {calibracionHook.calibracion ? (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                      ✓ Calibrado ({calibracionHook.calibracion.unidad})
+                      ✓ H {(calibracionHook.calibracion.escala_x).toFixed(4)} · V{" "}
+                      {(calibracionHook.calibracion.escala_y).toFixed(4)} {calibracionHook.calibracion.unidad}/px
                     </span>
                   ) : (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
@@ -740,7 +847,8 @@ export default function VisorPlano({
                         height={pdfDims.height}
                         zoomPDF={escala}
                         modo={modoDibujo}
-                        escalaUnidades={calibracionHook.calibracion?.escala_x ?? null}
+                        escalaX={calibracionHook.calibracion?.escala_x ?? null}
+                        escalaY={calibracionHook.calibracion?.escala_y ?? null}
                         unidad={calibracionHook.calibracion?.unidad ?? "ft"}
                         mediciones={medicionesParaLienzo}
                         onCalibrar={onLienzoCalibrar}
@@ -750,6 +858,7 @@ export default function VisorPlano({
                         onPolilinea={(valor, _dpx, puntos) =>
                           onLienzoMedicion("polilinea", valor, puntos)
                         }
+                        onConteo={onLienzoConteo}
                       />
                     )}
                   </div>
@@ -821,12 +930,23 @@ export default function VisorPlano({
                 {conceptoIdx !== null && conceptos[conceptoIdx] && (
                   <>
                     <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                        {conceptos[conceptoIdx].partida || "(sin partida)"}
-                      </p>
-                      <p className="mt-1 text-[12px] font-semibold leading-snug text-gray-900">
-                        {conceptos[conceptoIdx].descripcion_es}
-                      </p>
+                      <div className="flex items-start gap-2">
+                        <span
+                          className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: colorParaConcepto(conceptos[conceptoIdx].clave),
+                          }}
+                          title="Color del concepto en el plano"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                            {conceptos[conceptoIdx].partida || "(sin partida)"}
+                          </p>
+                          <p className="mt-0.5 text-[12px] font-semibold leading-snug text-gray-900">
+                            {conceptos[conceptoIdx].descripcion_es}
+                          </p>
+                        </div>
+                      </div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="text-center">
                           <p className="text-[9px] uppercase tracking-wider text-gray-400">
@@ -875,30 +995,26 @@ export default function VisorPlano({
                                   className="px-2 py-4 text-center text-[10px] italic text-gray-400"
                                 >
                                   {calibracionHook.calibracion
-                                    ? "Activa una herramienta (Línea / Polilínea) y dibuja sobre el plano."
-                                    : "Primero calibra la escala (botón 📏 Calibrar)."}
+                                    ? "Activa una herramienta (Línea / Polilínea / Piezas) y dibuja sobre el plano."
+                                    : "Primero calibra la escala (📏 Calibrar H o 📐 Calibrar V)."}
                                 </td>
                               </tr>
                             ) : (
                               medicionesDelConcepto.map((m, i) => (
-                                <tr key={m.id} className="border-t border-gray-100">
-                                  <td className="px-2 py-1 text-gray-400">{i + 1}</td>
-                                  <td className="px-2 py-1 capitalize text-gray-700">
-                                    {m.tipo}
-                                  </td>
-                                  <td className="px-2 py-1 text-right font-mono font-semibold text-gray-900">
-                                    {Number(m.valor).toFixed(2)} {m.unidad}
-                                  </td>
-                                  <td className="px-1 py-1 text-center">
-                                    <button
-                                      onClick={() => borrarMedicion(m.id)}
-                                      title="Borrar medición"
-                                      className="text-gray-300 hover:text-red-500"
-                                    >
-                                      ✕
-                                    </button>
-                                  </td>
-                                </tr>
+                                <FilaMedicion
+                                  key={m.id}
+                                  numero={i + 1}
+                                  medicion={m}
+                                  color={colorParaConcepto(
+                                    conceptoIdx != null
+                                      ? conceptos[conceptoIdx].clave
+                                      : ""
+                                  )}
+                                  onActualizarNota={(nota) =>
+                                    medicionesHook.actualizarNota(m.id, nota)
+                                  }
+                                  onBorrar={() => borrarMedicion(m.id)}
+                                />
                               ))
                             )}
                           </tbody>
@@ -944,42 +1060,135 @@ export default function VisorPlano({
           </span>
         </div>
 
-        {/* Dialogo de Calibración */}
+        {/* Dialogo de Calibración (con pies+pulgadas o métrico, según unidad) */}
         {dialogoCalibrar && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-2xl">
-              <h3 className="text-sm font-bold text-gray-900">📏 Calibrar escala</h3>
+            <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-2xl">
+              <h3 className="text-sm font-bold text-gray-900">
+                {dialogoCalibrar.eje === "x" ? "📏 Calibrar Horizontal" : "📐 Calibrar Vertical"}
+              </h3>
               <p className="mt-1 text-[11px] text-gray-500">
                 Marcaste una distancia de <strong>{dialogoCalibrar.distancia_px_base.toFixed(0)} px</strong> en el plano.
-                Indica la medida REAL de esa distancia.
+                Indica la medida REAL de esa distancia
+                {dialogoCalibrar.eje === "x" ? " (horizontal)" : " (vertical)"}.
               </p>
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  type="number"
-                  step="0.01"
-                  autoFocus
-                  value={medidaRealStr}
-                  onChange={(e) => setMedidaRealStr(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
-                  placeholder="Ej. 12"
-                  className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
-                />
-                <select
-                  value={unidadCalibracion}
-                  onChange={(e) => setUnidadCalibracion(e.target.value as UnidadCalibracion)}
-                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-800 focus:border-roca-gold focus:outline-none"
-                >
-                  <option value="ft">ft (pies)</option>
-                  <option value="m">m (metros)</option>
-                  <option value="in">in (pulgadas)</option>
-                  <option value="cm">cm</option>
-                </select>
+
+              {/* Selector de unidad */}
+              <div className="mt-3 flex flex-wrap gap-1">
+                {(["ft", "m", "in", "cm"] as const).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setUnidadCalibracion(u)}
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition ${
+                      unidadCalibracion === u
+                        ? "border-roca-gold bg-roca-gold/15 text-roca-dark"
+                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    {u === "ft"
+                      ? "ft + in (pies y pulgadas)"
+                      : u === "m"
+                        ? "m (metros)"
+                        : u === "in"
+                          ? "in (solo pulgadas)"
+                          : "cm"}
+                  </button>
+                ))}
               </div>
+
+              {/* Inputs según unidad */}
+              {unidadCalibracion === "ft" && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="block">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Pies
+                    </span>
+                    <input
+                      type="number"
+                      autoFocus
+                      step="1"
+                      value={calibPies}
+                      onChange={(e) => setCalibPies(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                      placeholder="19"
+                      className="mt-0.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Pulgadas
+                    </span>
+                    <input
+                      type="number"
+                      step="0.125"
+                      value={calibPulgadas}
+                      onChange={(e) => setCalibPulgadas(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                      placeholder="9"
+                      className="mt-0.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                    />
+                  </label>
+                </div>
+              )}
+              {unidadCalibracion === "m" && (
+                <label className="mt-3 block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Metros (con decimales si aplica)
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    autoFocus
+                    value={calibMetros}
+                    onChange={(e) => setCalibMetros(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                    placeholder="6.10"
+                    className="mt-0.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                  />
+                </label>
+              )}
+              {unidadCalibracion === "in" && (
+                <label className="mt-3 block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Pulgadas
+                  </span>
+                  <input
+                    type="number"
+                    step="0.125"
+                    autoFocus
+                    value={calibPulgadas}
+                    onChange={(e) => setCalibPulgadas(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                    placeholder="36"
+                    className="mt-0.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                  />
+                </label>
+              )}
+              {unidadCalibracion === "cm" && (
+                <label className="mt-3 block">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Centímetros
+                  </span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    autoFocus
+                    value={calibMetros}
+                    onChange={(e) => setCalibMetros(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                    placeholder="91.5"
+                    className="mt-0.5 w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                  />
+                </label>
+              )}
+
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   onClick={() => {
                     setDialogoCalibrar(null);
-                    setMedidaRealStr("");
+                    setCalibPies("");
+                    setCalibPulgadas("");
+                    setCalibMetros("");
                   }}
                   className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
                 >
@@ -989,7 +1198,7 @@ export default function VisorPlano({
                   onClick={confirmarCalibracion}
                   className="rounded-lg bg-roca-gold px-3 py-1.5 text-xs font-semibold text-roca-dark hover:bg-roca-gold-soft"
                 >
-                  Aplicar calibración
+                  Aplicar al eje {dialogoCalibrar.eje === "x" ? "Horizontal" : "Vertical"}
                 </button>
               </div>
             </div>
@@ -997,6 +1206,90 @@ export default function VisorPlano({
         )}
       </div>
     </div>
+  );
+}
+
+// Fila de medición con edición de etiqueta inline + color del concepto
+function FilaMedicion({
+  numero,
+  medicion,
+  color,
+  onActualizarNota,
+  onBorrar,
+}: {
+  numero: number;
+  medicion: Medicion;
+  color: string;
+  onActualizarNota: (nota: string) => void | Promise<void>;
+  onBorrar: () => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [nota, setNota] = useState(medicion.nota ?? "");
+
+  useEffect(() => {
+    setNota(medicion.nota ?? "");
+  }, [medicion.nota]);
+
+  function guardar() {
+    onActualizarNota(nota);
+    setEditando(false);
+  }
+
+  return (
+    <tr className="border-t border-gray-100">
+      <td className="px-1 py-1 text-center">
+        <span
+          className="inline-block h-2 w-2 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+        <span className="ml-0.5 text-gray-400">{numero}</span>
+      </td>
+      <td className="px-2 py-1 text-gray-700">
+        {editando ? (
+          <input
+            autoFocus
+            value={nota}
+            onChange={(e) => setNota(e.target.value)}
+            onBlur={guardar}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") guardar();
+              if (e.key === "Escape") {
+                setNota(medicion.nota ?? "");
+                setEditando(false);
+              }
+            }}
+            placeholder="Etiqueta…"
+            className="w-full rounded border border-roca-gold bg-white px-1 py-0.5 text-[10px] focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => setEditando(true)}
+            title="Click para editar la etiqueta"
+            className="text-left text-[10px] hover:underline"
+          >
+            {medicion.nota ? (
+              <span className="text-gray-900">{medicion.nota}</span>
+            ) : (
+              <span className="text-gray-400">
+                ✏️ {medicion.tipo}
+              </span>
+            )}
+          </button>
+        )}
+      </td>
+      <td className="px-2 py-1 text-right font-mono font-semibold text-gray-900">
+        {Number(medicion.valor).toFixed(2)} {medicion.unidad}
+      </td>
+      <td className="px-1 py-1 text-center">
+        <button
+          onClick={onBorrar}
+          title="Borrar medición"
+          className="text-gray-300 hover:text-red-500"
+        >
+          ✕
+        </button>
+      </td>
+    </tr>
   );
 }
 
