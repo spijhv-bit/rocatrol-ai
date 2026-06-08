@@ -127,7 +127,7 @@ export default function VisorPlano({ abierto, onCerrar }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-black/70 p-2 sm:p-4">
-      <div className="flex w-full flex-col rounded-xl bg-white shadow-2xl">
+      <div className="flex w-full flex-col rounded-xl bg-white text-gray-800 shadow-2xl">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
@@ -154,7 +154,7 @@ export default function VisorPlano({ abierto, onCerrar }: Props) {
 
         {/* Toolbar (solo cuando hay PDF) */}
         {pdfData && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 text-[11px]">
+          <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-2 text-[11px] text-gray-700">
             {/* Navegación de páginas */}
             {totalPaginas > 1 && (
               <div className="flex items-center gap-1">
