@@ -12,6 +12,7 @@ import BuscadorConceptos from "@/components/BuscadorConceptos";
 import CabeceraCotizacion from "@/components/CabeceraCotizacion";
 import TarjetaPrecioUnitario from "@/components/TarjetaPrecioUnitario";
 import TarjetaCuantificacion from "@/components/TarjetaCuantificacion";
+import VisorPlano from "@/components/VisorPlano";
 import FormularioObra, { OBRA_VACIA, type DatosObra } from "@/components/FormularioObra";
 import type { GeneradorData } from "@/lib/cuantificacion/formula";
 import type { InsumoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
@@ -246,6 +247,8 @@ export default function CotizarPage() {
     idx: -1,
   });
   const [generadores, setGeneradores] = useState<Record<number, GeneradorData>>({});
+  // Visor de plano (Sprint 1 del Takeoff)
+  const [visorPlanoAbierto, setVisorPlanoAbierto] = useState(false);
   // Progreso del "Calcular TODOS los precios con IA"
   const [calcTodos, setCalcTodos] = useState<{
     hecho: number;
@@ -1116,6 +1119,14 @@ export default function CotizarPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Cuantificar sobre plano (Sprint 1 Takeoff) */}
+                  <button
+                    onClick={() => setVisorPlanoAbierto(true)}
+                    className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+                    title="Abrir visor de planos PDF — Sprint 1 del Takeoff visual"
+                  >
+                    📐 Cuantificar sobre plano
+                  </button>
                   {/* Calcular TODOS los precios con IA */}
                   <button
                     onClick={calcularTodosLosPrecios}
@@ -1678,6 +1689,12 @@ export default function CotizarPage() {
           }}
         />
       )}
+
+      {/* Visor de Plano (Sprint 1 del Takeoff visual) */}
+      <VisorPlano
+        abierto={visorPlanoAbierto}
+        onCerrar={() => setVisorPlanoAbierto(false)}
+      />
 
       {/* Modal Tarjeta de Cuantificación (Generador — Capa 2) */}
       {cuantModal.abierto && cuantModal.idx >= 0 && conceptos[cuantModal.idx] && (
