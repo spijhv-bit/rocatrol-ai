@@ -15,11 +15,20 @@
 //   - Sprint 5: integración con Generador (cantidad acumulada → concepto).
 // ============================================================================
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
 import { useQuotePlanos, type QuotePlano } from "@/lib/hooks/useQuotePlanos";
+import { useCalibracionPlano, type UnidadCalibracion } from "@/lib/hooks/useCalibracionPlano";
+import { useMediciones, type Medicion } from "@/lib/hooks/useMediciones";
+import { supabase } from "@/lib/supabase";
 import type { ConceptoPropuesto } from "@/lib/agentes/interprete";
+import type { ModoDibujo, MedicionDibujo } from "@/components/LienzoDibujo";
+
+// LienzoDibujo usa react-konva que no funciona en SSR. dynamic con ssr:false.
+const LienzoDibujo = dynamic(() => import("@/components/LienzoDibujo"), {
+  ssr: false,
+});
 
 const Document = dynamic(
   () => import("react-pdf").then((mod) => mod.Document),
@@ -54,6 +63,17 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 0.25;
 
+// Convierte la unidad de calibración (ft / m) a la unidad del concepto si el
+// concepto está en sistema "construcción USA" (lf vs ft, m vs m). Para v1
+// asumimos misma familia métrica/imperial; sólo cambiamos la sigla.
+function mapearUnidadLineal(unidadCalib: string, unidadConcepto: string): string {
+  if (unidadConcepto === "lf" && unidadCalib === "ft") return "lf";
+  if (unidadConcepto === "ft" && unidadCalib === "ft") return "ft";
+  if (unidadConcepto === "m" && unidadCalib === "m") return "m";
+  if (unidadConcepto && /^(lf|ft|m|in|cm)$/.test(unidadConcepto)) return unidadConcepto;
+  return unidadCalib;
+}
+
 export default function VisorPlano({
   abierto,
   onCerrar,
@@ -81,7 +101,24 @@ export default function VisorPlano({
   // Sprint 2B: concepto activo del catálogo (al que se asocian las mediciones)
   const [conceptoIdx, setConceptoIdx] = useState<number | null>(null);
 
+  // Sprint 3: dibujo
+  const [modoDibujo, setModoDibujo] = useState<ModoDibujo>("mover");
+  const [pdfDims, setPdfDims] = useState<{ width: number; height: number } | null>(null);
+  // Dialogo abierto tras 2 clicks de calibración: pide medida real
+  const [dialogoCalibrar, setDialogoCalibrar] = useState<{
+    distancia_px_base: number;
+    puntos_base: [number, number][];
+  } | null>(null);
+  const [medidaRealStr, setMedidaRealStr] = useState("");
+  const [unidadCalibracion, setUnidadCalibracion] = useState<UnidadCalibracion>("ft");
+  // Map clave → quote_item_id (para asociar mediciones al concepto real persistido)
+  const [claveToId, setClaveToId] = useState<Record<string, string>>({});
+
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Hooks BD: calibración por (plano, página) y mediciones por (cotización)
+  const calibracionHook = useCalibracionPlano(session, planoActivoId, paginaActual);
+  const medicionesHook = useMediciones(session, quoteId);
 
   // Plano activo (objeto completo)
   const planoActivo = useMemo(
@@ -114,6 +151,68 @@ export default function VisorPlano({
     if (conceptoIdx != null && conceptos[conceptoIdx]) return;
     setConceptoIdx(conceptosFiltrados[0].idx);
   }, [abierto, conceptosFiltrados, conceptos, conceptoIdx]);
+
+  // Cargar mapping clave → quote_item_id (necesario para asociar mediciones)
+  useEffect(() => {
+    if (!quoteId || !abierto) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("quote_items")
+        .select("id, clave")
+        .eq("quote_id", quoteId);
+      if (cancelled || !data) return;
+      const map: Record<string, string> = {};
+      for (const it of data) {
+        if (it.clave) map[it.clave] = it.id;
+      }
+      setClaveToId(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteId, abierto]);
+
+  // Reset modo de dibujo al cambiar plano/página/concepto
+  useEffect(() => {
+    setModoDibujo("mover");
+    setDialogoCalibrar(null);
+  }, [planoActivoId, paginaActual, conceptoIdx]);
+
+  // ID del concepto activo en BD (para guardar mediciones)
+  const conceptoActivoQuoteItemId = useMemo<string | null>(() => {
+    if (conceptoIdx == null || !conceptos[conceptoIdx]?.clave) return null;
+    return claveToId[conceptos[conceptoIdx].clave] ?? null;
+  }, [conceptoIdx, conceptos, claveToId]);
+
+  // Mediciones del concepto activo y página actual (para tabla y para re-dibujar)
+  const medicionesDelConcepto = useMemo<Medicion[]>(() => {
+    if (!conceptoActivoQuoteItemId) return [];
+    return medicionesHook.mediciones.filter(
+      (m) =>
+        m.quote_item_id === conceptoActivoQuoteItemId &&
+        m.plano_id === planoActivoId &&
+        m.pagina === paginaActual
+    );
+  }, [medicionesHook.mediciones, conceptoActivoQuoteItemId, planoActivoId, paginaActual]);
+
+  const totalMediciones = useMemo(
+    () => medicionesDelConcepto.reduce((acc, m) => acc + (Number(m.valor) || 0), 0),
+    [medicionesDelConcepto]
+  );
+
+  // Adaptamos las mediciones al formato que espera el lienzo (puntos como tuplas)
+  const medicionesParaLienzo = useMemo<MedicionDibujo[]>(
+    () =>
+      medicionesDelConcepto.map((m) => ({
+        id: m.id,
+        tipo: m.tipo,
+        puntos: m.puntos as [number, number][],
+        valor: Number(m.valor),
+        unidad: m.unidad,
+      })),
+    [medicionesDelConcepto]
+  );
 
   // Reset al cerrar
   useEffect(() => {
@@ -214,6 +313,83 @@ export default function VisorPlano({
     if (planoActivoId === p.id) {
       setPlanoActivoId(null);
     }
+  }
+
+  // Handler del Lienzo: 2 clicks de calibración → abre dialogo para que el
+  // usuario introduzca la medida real.
+  const onLienzoCalibrar = useCallback(
+    (distancia_px_base: number, puntos_base: [number, number][]) => {
+      setDialogoCalibrar({ distancia_px_base, puntos_base });
+      setMedidaRealStr("");
+    },
+    []
+  );
+
+  async function confirmarCalibracion() {
+    if (!dialogoCalibrar) return;
+    const medida = Number(medidaRealStr);
+    if (!Number.isFinite(medida) || medida <= 0) {
+      setError("La medida debe ser un número mayor que 0.");
+      return;
+    }
+    await calibracionHook.guardar({
+      distancia_px: dialogoCalibrar.distancia_px_base,
+      medida_real: medida,
+      unidad: unidadCalibracion,
+    });
+    setDialogoCalibrar(null);
+    setMedidaRealStr("");
+    setModoDibujo("mover"); // listo, vuelve a navegación
+  }
+
+  // Handler del Lienzo: línea o polilínea terminada → guarda medición en BD
+  const onLienzoMedicion = useCallback(
+    async (
+      tipo: "linea" | "polilinea",
+      valor: number,
+      puntos_base: [number, number][]
+    ) => {
+      if (!quoteId || !planoActivoId) return;
+      if (!conceptoActivoQuoteItemId) {
+        setError(
+          "Selecciona un concepto en el panel derecho antes de medir (el concepto debe estar guardado en la cotización)."
+        );
+        return;
+      }
+      if (!calibracionHook.calibracion) {
+        setError("Calibra primero la escala del plano.");
+        return;
+      }
+      const unidadConcepto = conceptoIdx != null ? conceptos[conceptoIdx].unidad : "";
+      // Convertir la unidad de calibración a la unidad del concepto si es lineal
+      // (ft ↔ lf, m ↔ m). Por ahora asumimos misma familia y solo cambiamos sigla.
+      const unidadGuardar = mapearUnidadLineal(calibracionHook.calibracion.unidad, unidadConcepto);
+      await medicionesHook.agregar({
+        plano_id: planoActivoId,
+        quote_item_id: conceptoActivoQuoteItemId,
+        pagina: paginaActual,
+        tipo,
+        valor,
+        unidad: unidadGuardar,
+        puntos: puntos_base,
+      });
+    },
+    [
+      quoteId,
+      planoActivoId,
+      conceptoActivoQuoteItemId,
+      calibracionHook,
+      medicionesHook,
+      conceptos,
+      conceptoIdx,
+      paginaActual,
+    ]
+  );
+
+  // Borrar una medición de la tabla
+  async function borrarMedicion(id: string) {
+    if (!confirm("¿Borrar esta medición?")) return;
+    await medicionesHook.borrar(id);
   }
 
   if (!abierto) return null;
@@ -455,8 +631,50 @@ export default function VisorPlano({
                   </button>
                 </div>
 
-                <div className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
-                  Sprint 2A: gestor de planos · Medición en próximos sprints
+                <span className="mx-2 h-5 w-px bg-gray-200" />
+
+                {/* Herramientas Sprint 3 */}
+                <div className="flex items-center gap-1">
+                  <BotonModo
+                    activo={modoDibujo === "mover"}
+                    onClick={() => setModoDibujo("mover")}
+                    icono="✋"
+                    label="Mover"
+                  />
+                  <BotonModo
+                    activo={modoDibujo === "calibrar"}
+                    onClick={() => setModoDibujo("calibrar")}
+                    icono="📏"
+                    label={calibracionHook.calibracion ? "Recalibrar" : "Calibrar"}
+                    color="amber"
+                  />
+                  <BotonModo
+                    activo={modoDibujo === "linea"}
+                    onClick={() => setModoDibujo("linea")}
+                    icono="📐"
+                    label="Línea"
+                    disabled={!calibracionHook.calibracion}
+                  />
+                  <BotonModo
+                    activo={modoDibujo === "polilinea"}
+                    onClick={() => setModoDibujo("polilinea")}
+                    icono="↗️"
+                    label="Polilínea"
+                    disabled={!calibracionHook.calibracion}
+                  />
+                </div>
+
+                <div className="ml-auto flex items-center gap-2">
+                  {/* Estado de calibración */}
+                  {calibracionHook.calibracion ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      ✓ Calibrado ({calibracionHook.calibracion.unidad})
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+                      ⚠ Sin calibrar
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -485,27 +703,56 @@ export default function VisorPlano({
                 // tamaño del PDF cuando hay zoom, permitiendo scroll a ambos
                 // ejes en lugar de centrar y recortar.
                 <div className="inline-block min-w-full">
-                  <Document
-                    file={urlFirmada}
-                    onLoadSuccess={(pdf) => setTotalPaginas(pdf.numPages)}
-                    onLoadError={(err) =>
-                      setError(`No se pudo cargar el PDF: ${err.message}`)
-                    }
-                    loading={
-                      <div className="flex items-center gap-2 py-12 text-sm text-gray-500">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-roca-gold border-t-transparent" />
-                        Cargando plano…
-                      </div>
-                    }
-                  >
-                    <Page
-                      pageNumber={paginaActual}
-                      scale={escala}
-                      renderAnnotationLayer={false}
-                      renderTextLayer={false}
-                      className="shadow-lg"
-                    />
-                  </Document>
+                  <div className="relative">
+                    <Document
+                      file={urlFirmada}
+                      onLoadSuccess={(pdf) => setTotalPaginas(pdf.numPages)}
+                      onLoadError={(err) =>
+                        setError(`No se pudo cargar el PDF: ${err.message}`)
+                      }
+                      loading={
+                        <div className="flex items-center gap-2 py-12 text-sm text-gray-500">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-roca-gold border-t-transparent" />
+                          Cargando plano…
+                        </div>
+                      }
+                    >
+                      <Page
+                        pageNumber={paginaActual}
+                        scale={escala}
+                        renderAnnotationLayer={false}
+                        renderTextLayer={false}
+                        className="shadow-lg"
+                        onRenderSuccess={(p) => {
+                          // p.width / p.height son las dimensiones renderizadas (con scale)
+                          setPdfDims({
+                            width: Math.round((p as { width: number }).width),
+                            height: Math.round((p as { height: number }).height),
+                          });
+                        }}
+                      />
+                    </Document>
+
+                    {/* Lienzo de dibujo Konva encima del PDF (Sprint 3) */}
+                    {pdfDims && (
+                      <LienzoDibujo
+                        width={pdfDims.width}
+                        height={pdfDims.height}
+                        zoomPDF={escala}
+                        modo={modoDibujo}
+                        escalaUnidades={calibracionHook.calibracion?.escala_x ?? null}
+                        unidad={calibracionHook.calibracion?.unidad ?? "ft"}
+                        mediciones={medicionesParaLienzo}
+                        onCalibrar={onLienzoCalibrar}
+                        onLinea={(valor, _dpx, puntos) =>
+                          onLienzoMedicion("linea", valor, puntos)
+                        }
+                        onPolilinea={(valor, _dpx, puntos) =>
+                          onLienzoMedicion("polilinea", valor, puntos)
+                        }
+                      />
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -600,17 +847,17 @@ export default function VisorPlano({
                       </div>
                     </div>
 
-                    {/* Tabla de mediciones (placeholder Sprint 2B) */}
+                    {/* Tabla de mediciones (Sprint 3: real, lee de BD) */}
                     <div className="mt-3 flex-1">
                       <div className="flex items-center justify-between">
                         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                          📏 Mediciones
+                          📏 Mediciones del concepto
                         </h3>
-                        <span className="rounded-full bg-amber-100 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-amber-800">
-                          Sprint 2B
+                        <span className="rounded-full bg-blue-100 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-blue-700">
+                          {medicionesDelConcepto.length}
                         </span>
                       </div>
-                      <div className="mt-2 overflow-hidden rounded-lg border border-dashed border-gray-300 bg-white">
+                      <div className="mt-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
                         <table className="w-full text-[10px]">
                           <thead className="bg-gray-50 text-gray-600">
                             <tr>
@@ -621,20 +868,50 @@ export default function VisorPlano({
                             </tr>
                           </thead>
                           <tbody>
-                            <tr>
-                              <td colSpan={4} className="px-2 py-6 text-center text-[10px] italic text-gray-400">
-                                Aún no hay mediciones.<br />
-                                Las herramientas de medición (línea, área, conteo) llegan en el Sprint 3.
-                              </td>
-                            </tr>
+                            {medicionesDelConcepto.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={4}
+                                  className="px-2 py-4 text-center text-[10px] italic text-gray-400"
+                                >
+                                  {calibracionHook.calibracion
+                                    ? "Activa una herramienta (Línea / Polilínea) y dibuja sobre el plano."
+                                    : "Primero calibra la escala (botón 📏 Calibrar)."}
+                                </td>
+                              </tr>
+                            ) : (
+                              medicionesDelConcepto.map((m, i) => (
+                                <tr key={m.id} className="border-t border-gray-100">
+                                  <td className="px-2 py-1 text-gray-400">{i + 1}</td>
+                                  <td className="px-2 py-1 capitalize text-gray-700">
+                                    {m.tipo}
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-mono font-semibold text-gray-900">
+                                    {Number(m.valor).toFixed(2)} {m.unidad}
+                                  </td>
+                                  <td className="px-1 py-1 text-center">
+                                    <button
+                                      onClick={() => borrarMedicion(m.id)}
+                                      title="Borrar medición"
+                                      className="text-gray-300 hover:text-red-500"
+                                    >
+                                      ✕
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={2} className="px-2 py-1 text-right font-semibold text-gray-600">
+                              <td
+                                colSpan={2}
+                                className="px-2 py-1.5 text-right font-semibold text-gray-600"
+                              >
                                 TOTAL ({conceptos[conceptoIdx].unidad}):
                               </td>
-                              <td className="px-2 py-1 text-right font-bold text-roca-gold-soft">
-                                0
+                              <td className="px-2 py-1.5 text-right font-bold text-roca-gold-soft">
+                                {totalMediciones.toFixed(2)}
                               </td>
                               <td />
                             </tr>
@@ -663,10 +940,99 @@ export default function VisorPlano({
         {/* Footer */}
         <div className="border-t border-gray-200 bg-gray-50 px-4 py-2 text-[10px] text-gray-500">
           <span>
-            💡 Los planos se guardan automáticamente en la nube y solo tú los ves. En el próximo sprint podrás <strong>calibrar la escala</strong>, dibujar <strong>líneas</strong> y <strong>áreas</strong>, contar <strong>piezas</strong>, y conectar las mediciones al precio unitario.
+            💡 Calibra primero (📏) marcando 2 puntos sobre una distancia conocida del plano. Luego usa Línea o Polilínea para medir; cada medición se asocia al concepto seleccionado a la derecha.
           </span>
         </div>
+
+        {/* Dialogo de Calibración */}
+        {dialogoCalibrar && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-2xl">
+              <h3 className="text-sm font-bold text-gray-900">📏 Calibrar escala</h3>
+              <p className="mt-1 text-[11px] text-gray-500">
+                Marcaste una distancia de <strong>{dialogoCalibrar.distancia_px_base.toFixed(0)} px</strong> en el plano.
+                Indica la medida REAL de esa distancia.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  autoFocus
+                  value={medidaRealStr}
+                  onChange={(e) => setMedidaRealStr(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && confirmarCalibracion()}
+                  placeholder="Ej. 12"
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-roca-gold focus:outline-none"
+                />
+                <select
+                  value={unidadCalibracion}
+                  onChange={(e) => setUnidadCalibracion(e.target.value as UnidadCalibracion)}
+                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-800 focus:border-roca-gold focus:outline-none"
+                >
+                  <option value="ft">ft (pies)</option>
+                  <option value="m">m (metros)</option>
+                  <option value="in">in (pulgadas)</option>
+                  <option value="cm">cm</option>
+                </select>
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setDialogoCalibrar(null);
+                    setMedidaRealStr("");
+                  }}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmarCalibracion}
+                  className="rounded-lg bg-roca-gold px-3 py-1.5 text-xs font-semibold text-roca-dark hover:bg-roca-gold-soft"
+                >
+                  Aplicar calibración
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// Botón de modo de dibujo (toolbar)
+function BotonModo({
+  activo,
+  onClick,
+  icono,
+  label,
+  disabled,
+  color = "blue",
+}: {
+  activo: boolean;
+  onClick: () => void;
+  icono: string;
+  label: string;
+  disabled?: boolean;
+  color?: "blue" | "amber";
+}) {
+  const colorActivo =
+    color === "amber"
+      ? "border-amber-400 bg-amber-100 text-amber-800"
+      : "border-blue-400 bg-blue-100 text-blue-800";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? `${label} (calibra primero)` : label}
+      className={`rounded border px-2 py-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        activo
+          ? colorActivo
+          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+      }`}
+    >
+      <span className="mr-0.5">{icono}</span>
+      <span className="text-[10px] font-semibold">{label}</span>
+    </button>
   );
 }
