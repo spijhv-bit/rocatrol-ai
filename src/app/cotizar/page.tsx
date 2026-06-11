@@ -51,11 +51,18 @@ function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | und
 // Descripción = tooltip al hover de cada opción para que el usuario sepa qué es.
 const UNIDADES_CATALOGO: { value: string; descripcion: string }[] = [
   { value: "sf", descripcion: "pie² (superficie)" },
+  { value: "sy", descripcion: "yarda² (superficie)" },
+  { value: "m2", descripcion: "metro² (superficie)" },
   { value: "lf", descripcion: "pie lineal" },
+  { value: "m", descripcion: "metro lineal" },
   { value: "pza", descripcion: "pieza" },
   { value: "ea", descripcion: "each / unidad" },
   { value: "gal", descripcion: "galón" },
   { value: "cy", descripcion: "yarda³ (volumen)" },
+  { value: "m3", descripcion: "metro³ (volumen)" },
+  { value: "kg", descripcion: "kilogramo" },
+  { value: "lb", descripcion: "libra" },
+  { value: "tn", descripcion: "tonelada" },
   { value: "saco", descripcion: "saco (cemento, mortero…)" },
   { value: "hr", descripcion: "hora" },
   { value: "jor", descripcion: "jornada (8 h)" },

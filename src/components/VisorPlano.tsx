@@ -1134,7 +1134,7 @@ export default function VisorPlano({
                                   }}
                                   onBlur={(e) => guardarFactorLabel(e.target.value)}
                                   placeholder="× Factor"
-                                  title="Edita este encabezado (ej. 'Altura ft'). Cada medición se multiplica por su factor para convertirla a la unidad del concepto."
+                                  title="Edita este encabezado según lo que convierte: 'Altura ft' (lf→sf), 'Espesor' (sf→cy/m³), 'kg/ft' (lf→kg), 'Peso pza' (pza→tn)… Cada medición se multiplica por su factor para llegar a la unidad del concepto."
                                   className="w-16 rounded border border-dashed border-gray-300 bg-white px-1 py-0.5 text-center text-[9px] font-semibold text-gray-700 focus:border-roca-gold focus:outline-none"
                                 />
                               </th>
@@ -1514,7 +1514,7 @@ function FilaMedicion({
           onChange={(e) => setFactorStr(e.target.value)}
           onBlur={guardarFactor}
           onKeyDown={(e) => e.key === "Enter" && guardarFactor()}
-          title="Factor de conversión: el valor medido se multiplica por esta cifra (ej. la altura del muro)"
+          title="Factor de conversión: el valor medido × esta cifra = la unidad del concepto. Ejemplos: altura del muro (lf→sf), espesor (sf→volumen), peso por pie (lf→kg), peso por pieza (pza→tn). Déjalo en 1 si no aplica."
           className="w-12 rounded border border-gray-200 bg-white px-1 py-0.5 text-right font-mono text-[10px] text-gray-900 hover:border-gray-300 focus:border-roca-gold focus:outline-none"
         />
       </td>
