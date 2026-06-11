@@ -235,6 +235,12 @@ export default function VisorPlano({
     setDialogoCalibrar(null);
   }, [planoActivoId, paginaActual, conceptoIdx]);
 
+  // Reset de dimensiones al cambiar plano o página: cada página puede tener
+  // tamaño distinto; el onLoadSuccess del Page repone las correctas.
+  useEffect(() => {
+    setPdfDims(null);
+  }, [planoActivoId, paginaActual]);
+
   // Limpiar el mensaje de error al cambiar de herramienta o cerrar el diálogo
   // de calibración (evita que "Indica una medida mayor que 0" se quede pegado).
   useEffect(() => {
@@ -961,11 +967,15 @@ export default function VisorPlano({
                         renderAnnotationLayer={false}
                         renderTextLayer={false}
                         className="shadow-lg"
-                        onRenderSuccess={(p) => {
-                          // p.width / p.height son las dimensiones renderizadas (con scale)
+                        onLoadSuccess={(page) => {
+                          // Dimensiones BASE de la página (scale = 1). El lienzo
+                          // las multiplica por el zoom ACTUAL en cada render, así
+                          // SIEMPRE cubre todo el plano aunque cambie el zoom.
+                          // (Antes se capturaba el tamaño renderizado una sola vez
+                          // y al hacer zoom el área medible quedaba corta.)
                           setPdfDims({
-                            width: Math.round((p as { width: number }).width),
-                            height: Math.round((p as { height: number }).height),
+                            width: page.originalWidth,
+                            height: page.originalHeight,
                           });
                         }}
                       />
@@ -974,8 +984,8 @@ export default function VisorPlano({
                     {/* Lienzo de dibujo Konva encima del PDF (Sprint 3) */}
                     {pdfDims && (
                       <LienzoDibujo
-                        width={pdfDims.width}
-                        height={pdfDims.height}
+                        width={Math.round(pdfDims.width * escala)}
+                        height={Math.round(pdfDims.height * escala)}
                         zoomPDF={escala}
                         modo={modoDibujo}
                         escalaX={calibracionHook.calibracion?.escala_x ?? null}
