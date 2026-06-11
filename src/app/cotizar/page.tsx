@@ -1708,6 +1708,12 @@ export default function CotizarPage() {
           setVisorPlanoAbierto(false);
           setTpuModal({ abierto: true, idx });
         }}
+        onAplicarCantidad={(idx, cantidad) => {
+          // Actualiza la cantidad del concepto; el autosave existente la
+          // persiste (replace_quote_items v2 conserva los IDs → las
+          // mediciones del plano sobreviven).
+          editarConcepto(idx, "cantidad_estimada", cantidad);
+        }}
       />
 
       {/* Modal Tarjeta de Cuantificación (Generador — Capa 2) */}

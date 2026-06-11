@@ -202,7 +202,8 @@ export default function LienzoDibujo({
   }
 
   function handleMouseMove(e: Konva.KonvaEventObject<MouseEvent>) {
-    if (puntosTemp.length === 0) return;
+    // Trackear SIEMPRE en modos activos: el crosshair de precisión necesita
+    // la posición aunque aún no haya puntos marcados.
     const stage = e.target.getStage();
     if (!stage) return;
     const pos = stage.getPointerPosition();
@@ -349,6 +350,35 @@ export default function LienzoDibujo({
               </Group>
             );
           })}
+
+          {/* Crosshair de precisión: guías que cruzan todo el plano siguiendo
+              el cursor, para apuntar exacto a intersecciones de cotas/líneas
+              (estilo CAD). Activo en cualquier herramienta de dibujo. */}
+          {!esMover && mousePos && (
+            <Group>
+              <Line
+                points={[0, mousePos[1], width, mousePos[1]]}
+                stroke="#dc2626"
+                strokeWidth={0.75}
+                opacity={0.55}
+                dash={[4, 4]}
+              />
+              <Line
+                points={[mousePos[0], 0, mousePos[0], height]}
+                stroke="#dc2626"
+                strokeWidth={0.75}
+                opacity={0.55}
+                dash={[4, 4]}
+              />
+              <Circle
+                x={mousePos[0]}
+                y={mousePos[1]}
+                radius={7}
+                stroke="#dc2626"
+                strokeWidth={1.5}
+              />
+            </Group>
+          )}
 
           {/* Puntos temporales */}
           {puntosTemp.map((p, i) => (

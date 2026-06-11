@@ -56,6 +56,8 @@ interface Props {
   conceptos: ConceptoPropuesto[];
   /** Abrir la TarjetaPrecioUnitario del concepto seleccionado (Sprint 5: drawer). */
   onAbrirTPU?: (indiceConcepto: number) => void;
+  /** Aplica el total medido como cantidad del concepto en el catálogo. */
+  onAplicarCantidad?: (indiceConcepto: number, cantidad: number) => void;
 }
 
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -94,6 +96,7 @@ export default function VisorPlano({
   partidas,
   conceptos,
   onAbrirTPU,
+  onAplicarCantidad,
 }: Props) {
   const { planos, loading, error: hookError, subir, obtenerUrlFirmada, renombrar, asignarPartida, borrar } =
     useQuotePlanos(session, quoteId);
@@ -194,6 +197,12 @@ export default function VisorPlano({
     setModoDibujo("mover");
     setDialogoCalibrar(null);
   }, [planoActivoId, paginaActual, conceptoIdx]);
+
+  // Limpiar el mensaje de error al cambiar de herramienta o cerrar el diálogo
+  // de calibración (evita que "Indica una medida mayor que 0" se quede pegado).
+  useEffect(() => {
+    setError(null);
+  }, [modoDibujo, dialogoCalibrar]);
 
   // ID del concepto activo en BD (para guardar mediciones)
   const conceptoActivoQuoteItemId = useMemo<string | null>(() => {
@@ -771,15 +780,27 @@ export default function VisorPlano({
                 </div>
 
                 <div className="ml-auto flex items-center gap-2">
-                  {/* Estado de calibración (H/V) */}
-                  {calibracionHook.calibracion ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                      ✓ H {(calibracionHook.calibracion.escala_x).toFixed(4)} · V{" "}
-                      {(calibracionHook.calibracion.escala_y).toFixed(4)} {calibracionHook.calibracion.unidad}/px
+                  {/* Estado de calibración: sin calibrar / parcial (1 eje, el
+                      valor se copió al otro) / completa (H y V calibrados por
+                      separado — los floats casi nunca coinciden por azar). */}
+                  {!calibracionHook.calibracion ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+                      ⚠ Sin calibrar — usa 📏 Calibrar H y 📐 Calibrar V
+                    </span>
+                  ) : Number(calibracionHook.calibracion.escala_x) ===
+                    Number(calibracionHook.calibracion.escala_y) ? (
+                    <span
+                      className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                      title="Solo calibraste un eje; el otro usa el mismo valor. Para máxima precisión calibra también el otro eje."
+                    >
+                      ◐ Calibración parcial (1/2) — calibra el otro eje
                     </span>
                   ) : (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
-                      ⚠ Sin calibrar
+                    <span
+                      className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800"
+                      title={`H: ${Number(calibracionHook.calibracion.escala_x).toFixed(4)} · V: ${Number(calibracionHook.calibracion.escala_y).toFixed(4)} ${calibracionHook.calibracion.unidad}/px`}
+                    >
+                      ✓ Calibración completa H+V ({calibracionHook.calibracion.unidad})
                     </span>
                   )}
                 </div>
@@ -1036,6 +1057,46 @@ export default function VisorPlano({
                       </div>
                     </div>
 
+                    {/* Aplicar el total medido como cantidad del concepto */}
+                    {onAplicarCantidad && medicionesDelConcepto.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-roca-gold/40 bg-roca-gold/5 p-2.5">
+                        <div className="flex items-center justify-between text-[10px] text-gray-600">
+                          <span>
+                            En catálogo:{" "}
+                            <strong>{conceptos[conceptoIdx].cantidad_estimada || 0}</strong>{" "}
+                            {conceptos[conceptoIdx].unidad}
+                          </span>
+                          <span>→</span>
+                          <span>
+                            Medido:{" "}
+                            <strong className="text-roca-gold-soft">
+                              {totalMediciones.toFixed(2)}
+                            </strong>{" "}
+                            {conceptos[conceptoIdx].unidad}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() =>
+                            onAplicarCantidad(
+                              conceptoIdx,
+                              Number(totalMediciones.toFixed(2))
+                            )
+                          }
+                          disabled={
+                            Number(totalMediciones.toFixed(2)) ===
+                            (conceptos[conceptoIdx].cantidad_estimada || 0)
+                          }
+                          className="mt-1.5 w-full rounded-lg bg-roca-gold px-3 py-1.5 text-[11px] font-semibold text-roca-dark transition hover:bg-roca-gold-soft disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Sustituye la cantidad del concepto en el catálogo con el total medido en el plano"
+                        >
+                          {Number(totalMediciones.toFixed(2)) ===
+                          (conceptos[conceptoIdx].cantidad_estimada || 0)
+                            ? "✓ Cantidad aplicada al catálogo"
+                            : `↗ Aplicar al catálogo (${totalMediciones.toFixed(2)} ${conceptos[conceptoIdx].unidad})`}
+                        </button>
+                      </div>
+                    )}
+
                     {/* Acción: Ver TPU del concepto */}
                     {onAbrirTPU && (
                       <button
@@ -1182,6 +1243,12 @@ export default function VisorPlano({
                 </label>
               )}
 
+              {error && (
+                <div className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {error}
+                </div>
+              )}
+
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   onClick={() => {
@@ -1189,6 +1256,7 @@ export default function VisorPlano({
                     setCalibPies("");
                     setCalibPulgadas("");
                     setCalibMetros("");
+                    setError(null);
                   }}
                   className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
                 >
