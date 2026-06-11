@@ -76,6 +76,47 @@ function mapearUnidadLineal(unidadCalib: string, unidadConcepto: string): string
   return unidadCalib;
 }
 
+// Convierte un área medida (en unidad² de la calibración) a la unidad de
+// área estándar: sf si la calibración es imperial, m2 si es métrica.
+// Devuelve { valor convertido, unidad }.
+function convertirArea(
+  areaCalibUnidad2: number,
+  unidadCalib: string,
+  unidadConcepto: string
+): { valor: number; unidad: string } {
+  let valorSfOM2: number;
+  let unidadBase: string;
+  switch (unidadCalib) {
+    case "in": // in² → sf
+      valorSfOM2 = areaCalibUnidad2 / 144;
+      unidadBase = "sf";
+      break;
+    case "cm": // cm² → m²
+      valorSfOM2 = areaCalibUnidad2 / 10000;
+      unidadBase = "m2";
+      break;
+    case "m":
+      valorSfOM2 = areaCalibUnidad2;
+      unidadBase = "m2";
+      break;
+    case "ft":
+    default:
+      valorSfOM2 = areaCalibUnidad2;
+      unidadBase = "sf";
+      break;
+  }
+  // Si el concepto ya está en una unidad de área conocida, usar esa sigla.
+  if (/^(sf|m2|sy)$/.test(unidadConcepto)) {
+    if (unidadConcepto === "sy" && unidadBase === "sf") {
+      return { valor: valorSfOM2 / 9, unidad: "sy" }; // yardas² = ft²/9
+    }
+    if (unidadConcepto === unidadBase) {
+      return { valor: valorSfOM2, unidad: unidadConcepto };
+    }
+  }
+  return { valor: valorSfOM2, unidad: unidadBase };
+}
+
 // Genera un color HSL determinístico a partir de la clave del concepto.
 // Mismo concepto → siempre el mismo color, distinguible entre conceptos.
 function colorParaConcepto(clave: string | undefined | null): string {
@@ -454,6 +495,47 @@ export default function VisorPlano({
     ]
   );
 
+  // Área cerrada: el lienzo devuelve el área en unidad² de la calibración;
+  // se convierte a sf/m² antes de guardar.
+  const onLienzoArea = useCallback(
+    async (valorCalibU2: number, puntos_base: [number, number][]) => {
+      if (!quoteId || !planoActivoId) return;
+      if (!conceptoActivoQuoteItemId) {
+        setError("Selecciona un concepto del catálogo antes de medir áreas.");
+        return;
+      }
+      if (!calibracionHook.calibracion) {
+        setError("Calibra primero la escala del plano.");
+        return;
+      }
+      const unidadConcepto = conceptoIdx != null ? conceptos[conceptoIdx].unidad : "";
+      const { valor, unidad } = convertirArea(
+        valorCalibU2,
+        calibracionHook.calibracion.unidad,
+        unidadConcepto
+      );
+      await medicionesHook.agregar({
+        plano_id: planoActivoId,
+        quote_item_id: conceptoActivoQuoteItemId,
+        pagina: paginaActual,
+        tipo: "area",
+        valor,
+        unidad,
+        puntos: puntos_base,
+      });
+    },
+    [
+      quoteId,
+      planoActivoId,
+      conceptoActivoQuoteItemId,
+      calibracionHook,
+      medicionesHook,
+      conceptos,
+      conceptoIdx,
+      paginaActual,
+    ]
+  );
+
   // Conteo: cada click agrega una medición con valor=1 unidad=pza
   const onLienzoConteo = useCallback(
     async (punto_base: [number, number]) => {
@@ -771,6 +853,13 @@ export default function VisorPlano({
                     disabled={!calibracionHook.calibracion}
                   />
                   <BotonModo
+                    activo={modoDibujo === "area"}
+                    onClick={() => setModoDibujo("area")}
+                    icono="⬡"
+                    label="Área"
+                    disabled={!calibracionHook.calibracion}
+                  />
+                  <BotonModo
                     activo={modoDibujo === "conteo"}
                     onClick={() => setModoDibujo("conteo")}
                     icono="👆"
@@ -880,6 +969,7 @@ export default function VisorPlano({
                           onLienzoMedicion("polilinea", valor, puntos)
                         }
                         onConteo={onLienzoConteo}
+                        onArea={onLienzoArea}
                       />
                     )}
                   </div>

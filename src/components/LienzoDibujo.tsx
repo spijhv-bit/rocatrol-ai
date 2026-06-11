@@ -19,7 +19,14 @@ import { useState } from "react";
 import { Stage, Layer, Line, Circle, Text, Group, Rect } from "react-konva";
 import type Konva from "konva";
 
-export type ModoDibujo = "mover" | "calibrar-h" | "calibrar-v" | "linea" | "polilinea" | "conteo";
+export type ModoDibujo =
+  | "mover"
+  | "calibrar-h"
+  | "calibrar-v"
+  | "linea"
+  | "polilinea"
+  | "area"
+  | "conteo";
 
 export interface MedicionDibujo {
   id: string;
@@ -63,6 +70,8 @@ interface Props {
   ) => void;
   /** Conteo: cada click agrega una pieza (medición tipo='conteo' con 1 punto y valor=1). */
   onConteo: (punto_base: [number, number]) => void;
+  /** Área cerrada (polígono): valor en unidades² de la calibración. */
+  onArea: (valor: number, puntos_base: [number, number][]) => void;
 }
 
 function distEuclidiana(p: [number, number], q: [number, number]) {
@@ -72,6 +81,23 @@ function distPolilinea(pts: [number, number][]) {
   let d = 0;
   for (let i = 1; i < pts.length; i++) d += distEuclidiana(pts[i - 1], pts[i]);
   return d;
+}
+// Área de polígono con la fórmula del shoelace (Gauss). Convierte cada
+// coordenada a unidades reales con su escala por eje ANTES de calcular —
+// así el resultado respeta planos distorsionados y polígonos cóncavos.
+function areaShoelace(
+  ptsBase: [number, number][],
+  escalaX: number,
+  escalaY: number
+): number {
+  if (ptsBase.length < 3) return 0;
+  let suma = 0;
+  for (let i = 0; i < ptsBase.length; i++) {
+    const [x1, y1] = ptsBase[i];
+    const [x2, y2] = ptsBase[(i + 1) % ptsBase.length];
+    suma += x1 * escalaX * (y2 * escalaY) - x2 * escalaX * (y1 * escalaY);
+  }
+  return Math.abs(suma) / 2;
 }
 
 export default function LienzoDibujo({
@@ -87,6 +113,7 @@ export default function LienzoDibujo({
   onLinea,
   onPolilinea,
   onConteo,
+  onArea,
 }: Props) {
   // Escala "promedio" para mediciones diagonales (línea/polilínea genérica).
   // Si solo una eje está calibrada, usa esa. Si ambas, promedia.
@@ -171,11 +198,24 @@ export default function LienzoDibujo({
       return;
     }
 
-    if (modo === "polilinea") {
+    if (modo === "polilinea" || modo === "area") {
       if (escalaPromedio == null) return;
       setPuntosTemp((prev) => [...prev, nuevo]);
       return;
     }
+  }
+
+  function handleTerminarArea() {
+    if (modo !== "area" || puntosTemp.length < 3 || escalaPromedio == null) {
+      setPuntosTemp([]);
+      return;
+    }
+    const puntosBase: [number, number][] = puntosTemp.map((p) => stageToBase(p));
+    const sx = escalaX ?? escalaPromedio;
+    const sy = escalaY ?? escalaPromedio;
+    const valor = areaShoelace(puntosBase, sx, sy);
+    onArea(valor, puntosBase);
+    setPuntosTemp([]);
   }
 
   function handleTerminarPolilinea() {
@@ -247,6 +287,13 @@ export default function LienzoDibujo({
       if (puntosTemp.length === 0) return "Click para empezar la polilínea";
       return `${puntosTemp.length} punto${puntosTemp.length === 1 ? "" : "s"} marcado${puntosTemp.length === 1 ? "" : "s"} · sigue clicando o dale Terminar`;
     }
+    if (modo === "area") {
+      if (escalaPromedio == null) return "Calibra primero la escala";
+      if (puntosTemp.length === 0) return "Click en cada esquina del área a medir";
+      if (puntosTemp.length < 3)
+        return `${puntosTemp.length} esquina${puntosTemp.length === 1 ? "" : "s"} · marca al menos 3 para cerrar`;
+      return `${puntosTemp.length} esquinas · sigue clicando o dale Cerrar área`;
+    }
     return "";
   }
 
@@ -317,9 +364,20 @@ export default function LienzoDibujo({
               );
             }
 
+            const esArea = m.tipo === "area";
             return (
               <Group key={m.id} opacity={opacidad}>
-                <Line points={flat} stroke={color} strokeWidth={grosor} lineCap="round" lineJoin="round" />
+                {esArea && (
+                  <Line points={flat} closed fill={color} opacity={0.16} />
+                )}
+                <Line
+                  points={flat}
+                  stroke={color}
+                  strokeWidth={grosor}
+                  lineCap="round"
+                  lineJoin="round"
+                  closed={esArea}
+                />
                 {pts.map((p, i) => (
                   <Circle key={i} x={p[0]} y={p[1]} radius={3} fill={color} />
                 ))}
@@ -392,6 +450,12 @@ export default function LienzoDibujo({
               strokeWidth={2}
               dash={[6, 4]}
               opacity={0.9}
+              closed={modo === "area" && puntosTemp.length >= 2}
+              fill={
+                modo === "area" && puntosTemp.length >= 2
+                  ? "rgba(220, 38, 38, 0.12)"
+                  : undefined
+              }
             />
           )}
         </Layer>
@@ -426,6 +490,22 @@ export default function LienzoDibujo({
           className="rounded-lg bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-md hover:bg-emerald-700"
         >
           ✓ Terminar polilínea
+        </button>
+      )}
+
+      {/* Botón "Cerrar área" con >= 3 esquinas */}
+      {modo === "area" && puntosTemp.length >= 3 && (
+        <button
+          onClick={handleTerminarArea}
+          style={{
+            position: "absolute",
+            top: 40,
+            left: "50%",
+            transform: "translateX(-50%)",
+          }}
+          className="rounded-lg bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-md hover:bg-emerald-700"
+        >
+          ✓ Cerrar área
         </button>
       )}
     </div>
