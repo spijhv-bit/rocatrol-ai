@@ -20,6 +20,8 @@ import { PORCENTAJES_DEFAULT_AVANZADO, PORCENTAJES_DEFAULT_SIMPLE } from "@/lib/
 import { calcularCascadaSobreSubtotal, calcularCostoDirecto } from "@/lib/apu/calcular";
 import { type EspecialidadId, type ConceptoSeed } from "@/lib/conceptos_seed";
 import { guiaPorEspecialidad } from "@/lib/plantillas_prompt";
+import { categoriasParaCatalogo, descripcionUnidad, buscarUnidad } from "@/lib/unidades";
+import TablaUnidades from "@/components/TablaUnidades";
 import { useAuth } from "@/lib/auth-context";
 import { useQuoteAutosave, type QuoteHeader } from "@/lib/hooks/useQuoteAutosave";
 import { useMisCotizaciones } from "@/lib/hooks/useMisCotizaciones";
@@ -47,30 +49,11 @@ function inferirEspecialidad(tipoObra: string | undefined): EspecialidadId | und
 // Unidades imperiales USA estándar para conceptos de construcción.
 // Si el Intérprete devuelve una unidad fuera de esta lista, se agrega como
 // opción extra del select para no perderla.
-// Etiqueta corta = lo que se ve en el select cerrado (la celda es estrecha).
-// Descripción = tooltip al hover de cada opción para que el usuario sepa qué es.
-const UNIDADES_CATALOGO: { value: string; descripcion: string }[] = [
-  { value: "sf", descripcion: "pie² (superficie)" },
-  { value: "sy", descripcion: "yarda² (superficie)" },
-  { value: "m2", descripcion: "metro² (superficie)" },
-  { value: "lf", descripcion: "pie lineal" },
-  { value: "m", descripcion: "metro lineal" },
-  { value: "pza", descripcion: "pieza" },
-  { value: "ea", descripcion: "each / unidad" },
-  { value: "gal", descripcion: "galón" },
-  { value: "cy", descripcion: "yarda³ (volumen)" },
-  { value: "m3", descripcion: "metro³ (volumen)" },
-  { value: "kg", descripcion: "kilogramo" },
-  { value: "lb", descripcion: "libra" },
-  { value: "tn", descripcion: "tonelada" },
-  { value: "saco", descripcion: "saco (cemento, mortero…)" },
-  { value: "hr", descripcion: "hora" },
-  { value: "jor", descripcion: "jornada (8 h)" },
-  { value: "día", descripcion: "día" },
-  { value: "mi", descripcion: "milla" },
-  { value: "lote", descripcion: "lote / global" },
-  { value: "ls", descripcion: "lump sum (precio único)" },
-];
+// Unidades del catálogo: derivadas del REPOSITORIO ÚNICO (src/lib/unidades.ts)
+// para unificar criterios en todo el producto. Agrupadas por categoría para
+// el <select> con optgroups. La tabla de consulta completa vive en el modal
+// TablaUnidades (botón 📖 Unidades del catálogo).
+const CATEGORIAS_DROPDOWN = categoriasParaCatalogo();
 
 const TIPOS_OK = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 const MAX_BYTES = 5 * 1024 * 1024; // 5 MB por archivo
@@ -256,6 +239,8 @@ export default function CotizarPage() {
   const [generadores, setGeneradores] = useState<Record<number, GeneradorData>>({});
   // Visor de plano (Sprint 1 del Takeoff)
   const [visorPlanoAbierto, setVisorPlanoAbierto] = useState(false);
+  // Tabla de consulta de unidades de construcción (repositorio único)
+  const [tablaUnidadesAbierta, setTablaUnidadesAbierta] = useState(false);
   // Progreso del "Calcular TODOS los precios con IA"
   const [calcTodos, setCalcTodos] = useState<{
     hecho: number;
@@ -1126,6 +1111,14 @@ export default function CotizarPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Tabla de consulta de unidades (repositorio único) */}
+                  <button
+                    onClick={() => setTablaUnidadesAbierta(true)}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-gray-700 transition hover:border-roca-gold/50 hover:bg-roca-gold/5"
+                    title="Consulta las unidades comunes de construcción y en qué ocasiones se usa cada una"
+                  >
+                    📖 Unidades
+                  </button>
                   {/* Cuantificar sobre plano (Sprint 1 Takeoff) */}
                   <button
                     onClick={() => setVisorPlanoAbierto(true)}
@@ -1286,24 +1279,27 @@ export default function CotizarPage() {
                                   onChange={(e) =>
                                     editarConcepto(i, "unidad", e.target.value)
                                   }
-                                  title={`Unidad: ${
-                                    UNIDADES_CATALOGO.find((u) => u.value === c.unidad)
-                                      ?.descripcion ?? c.unidad
-                                  } — click para cambiar`}
+                                  title={`Unidad: ${descripcionUnidad(c.unidad)} — click para cambiar. Consulta la tabla con el botón 📖 Unidades`}
                                   className="w-full cursor-pointer rounded border border-transparent bg-transparent px-1 py-1 text-center text-[11px] font-semibold text-gray-700 hover:border-gray-200 focus:border-roca-gold focus:bg-white focus:outline-none"
                                 >
-                                  {!UNIDADES_CATALOGO.some((u) => u.value === c.unidad) &&
-                                    c.unidad && (
-                                      <option value={c.unidad}>{c.unidad}</option>
-                                    )}
-                                  {UNIDADES_CATALOGO.map((u) => (
-                                    <option
-                                      key={u.value}
-                                      value={u.value}
-                                      title={u.descripcion}
-                                    >
-                                      {u.value}
-                                    </option>
+                                  {!buscarUnidad(c.unidad) && c.unidad && (
+                                    <option value={c.unidad}>{c.unidad}</option>
+                                  )}
+                                  {/* Solo el código corto como texto (el select cerrado lo
+                                      muestra en celda estrecha — lección sesión 10: el texto
+                                      largo se trunca feo). Nombre/uso van como tooltip. */}
+                                  {CATEGORIAS_DROPDOWN.map((cat) => (
+                                    <optgroup key={cat.id} label={`${cat.icono} ${cat.titulo}`}>
+                                      {cat.unidades.map((u) => (
+                                        <option
+                                          key={u.value}
+                                          value={u.value}
+                                          title={`${u.nombre} — ${u.uso}`}
+                                        >
+                                          {u.value}
+                                        </option>
+                                      ))}
+                                    </optgroup>
                                   ))}
                                 </select>
                               </td>
@@ -1696,6 +1692,12 @@ export default function CotizarPage() {
           }}
         />
       )}
+
+      {/* Tabla de consulta de unidades de construcción */}
+      <TablaUnidades
+        abierto={tablaUnidadesAbierta}
+        onCerrar={() => setTablaUnidadesAbierta(false)}
+      />
 
       {/* Visor de Plano (Sprint 2B — gestor + panel concepto activo) */}
       <VisorPlano
