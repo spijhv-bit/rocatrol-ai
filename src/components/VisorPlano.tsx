@@ -65,17 +65,6 @@ const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 0.25;
 
-// Convierte la unidad de calibración (ft / m) a la unidad del concepto si el
-// concepto está en sistema "construcción USA" (lf vs ft, m vs m). Para v1
-// asumimos misma familia métrica/imperial; sólo cambiamos la sigla.
-function mapearUnidadLineal(unidadCalib: string, unidadConcepto: string): string {
-  if (unidadConcepto === "lf" && unidadCalib === "ft") return "lf";
-  if (unidadConcepto === "ft" && unidadCalib === "ft") return "ft";
-  if (unidadConcepto === "m" && unidadCalib === "m") return "m";
-  if (unidadConcepto && /^(lf|ft|m|in|cm|pza|ea)$/.test(unidadConcepto)) return unidadConcepto;
-  return unidadCalib;
-}
-
 // Convierte un área medida (en unidad² de la calibración) a la unidad de
 // área estándar: sf si la calibración es imperial, m2 si es métrica.
 // Devuelve { valor convertido, unidad }.
@@ -173,6 +162,9 @@ export default function VisorPlano({
   const [unidadCalibracion, setUnidadCalibracion] = useState<UnidadCalibracion>("ft");
   // Map clave → quote_item_id (para asociar mediciones al concepto real persistido)
   const [claveToId, setClaveToId] = useState<Record<string, string>>({});
+  // Etiqueta del factor de conversión por concepto (quote_item_id → label).
+  // Ej. "Altura (ft)" cuando se mide en lf y el concepto es por sf de muro.
+  const [factorLabels, setFactorLabels] = useState<Record<string, string>>({});
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -212,26 +204,30 @@ export default function VisorPlano({
     setConceptoIdx(conceptosFiltrados[0].idx);
   }, [abierto, conceptosFiltrados, conceptos, conceptoIdx]);
 
-  // Cargar mapping clave → quote_item_id (necesario para asociar mediciones)
+  // Cargar mapping clave → quote_item_id + etiqueta del factor (migración 0012)
   useEffect(() => {
     if (!quoteId || !abierto) return;
     let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from("quote_items")
-        .select("id, clave")
+        .select("id, clave, takeoff_factor_label")
         .eq("quote_id", quoteId);
       if (cancelled || !data) return;
       const map: Record<string, string> = {};
+      const labels: Record<string, string> = {};
       for (const it of data) {
         if (it.clave) map[it.clave] = it.id;
+        if (it.takeoff_factor_label) labels[it.id] = it.takeoff_factor_label;
       }
       setClaveToId(map);
+      setFactorLabels(labels);
     })();
     return () => {
       cancelled = true;
     };
   }, [quoteId, abierto]);
+
 
   // Reset modo de dibujo al cambiar plano/página/concepto
   useEffect(() => {
@@ -251,6 +247,24 @@ export default function VisorPlano({
     return claveToId[conceptos[conceptoIdx].clave] ?? null;
   }, [conceptoIdx, conceptos, claveToId]);
 
+  // Guardar la etiqueta del factor del concepto activo (encabezado editable
+  // de la columna ×Factor en la tabla de mediciones).
+  const guardarFactorLabel = useCallback(
+    async (label: string) => {
+      if (!conceptoActivoQuoteItemId) return;
+      const limpio = label.trim() || null;
+      setFactorLabels((prev) => ({
+        ...prev,
+        [conceptoActivoQuoteItemId]: limpio ?? "",
+      }));
+      await supabase
+        .from("quote_items")
+        .update({ takeoff_factor_label: limpio })
+        .eq("id", conceptoActivoQuoteItemId);
+    },
+    [conceptoActivoQuoteItemId]
+  );
+
   // Mediciones del concepto activo y página actual (para tabla y para re-dibujar)
   const medicionesDelConcepto = useMemo<Medicion[]>(() => {
     if (!conceptoActivoQuoteItemId) return [];
@@ -262,8 +276,13 @@ export default function VisorPlano({
     );
   }, [medicionesHook.mediciones, conceptoActivoQuoteItemId, planoActivoId, paginaActual]);
 
+  // Total CONVERTIDO a la unidad del concepto: Σ (valor medido × factor).
   const totalMediciones = useMemo(
-    () => medicionesDelConcepto.reduce((acc, m) => acc + (Number(m.valor) || 0), 0),
+    () =>
+      medicionesDelConcepto.reduce(
+        (acc, m) => acc + (Number(m.valor) || 0) * (Number(m.factor) || 1),
+        0
+      ),
     [medicionesDelConcepto]
   );
 
@@ -469,10 +488,12 @@ export default function VisorPlano({
         setError("Calibra primero la escala del plano.");
         return;
       }
-      const unidadConcepto = conceptoIdx != null ? conceptos[conceptoIdx].unidad : "";
-      // Convertir la unidad de calibración a la unidad del concepto si es lineal
-      // (ft ↔ lf, m ↔ m). Por ahora asumimos misma familia y solo cambiamos sigla.
-      const unidadGuardar = mapearUnidadLineal(calibracionHook.calibracion.unidad, unidadConcepto);
+      // Las líneas/polilíneas SIEMPRE se guardan en su unidad cruda lineal:
+      // lf si la calibración es imperial (ft/in), m si es métrica (m/cm).
+      // La conversión a la unidad del CONCEPTO la hace el factor editable
+      // de la tabla (ej. lf × altura = sf de muro vertical).
+      const uCalib = calibracionHook.calibracion.unidad;
+      const unidadGuardar = uCalib === "m" || uCalib === "cm" ? "m" : "lf";
       await medicionesHook.agregar({
         plano_id: planoActivoId,
         quote_item_id: conceptoActivoQuoteItemId,
@@ -979,7 +1000,7 @@ export default function VisorPlano({
           </main>
 
           {/* PANEL DERECHO — Concepto activo (Sprint 2B) */}
-          <aside className="flex w-72 flex-col border-l border-gray-200 bg-gray-50">
+          <aside className="flex w-[340px] flex-col border-l border-gray-200 bg-gray-50">
             <div className="border-b border-gray-200 bg-white px-3 py-2">
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-roca-gold-soft">
                 <span>🎯</span>
@@ -1092,21 +1113,46 @@ export default function VisorPlano({
                         <table className="w-full text-[10px]">
                           <thead className="bg-gray-50 text-gray-600">
                             <tr>
-                              <th className="px-2 py-1 text-left font-semibold">#</th>
-                              <th className="px-2 py-1 text-left font-semibold">Tipo</th>
-                              <th className="px-2 py-1 text-right font-semibold">Valor</th>
-                              <th className="w-5"></th>
+                              <th className="px-1 py-1 text-left font-semibold">#</th>
+                              <th className="px-1 py-1 text-left font-semibold">Etiqueta</th>
+                              <th className="px-1 py-1 text-right font-semibold">Medido</th>
+                              <th className="px-1 py-1 text-center font-semibold">
+                                {/* Encabezado EDITABLE de la columna del factor.
+                                    Ej: "Altura (ft)" para convertir lf → sf. */}
+                                <input
+                                  value={
+                                    (conceptoActivoQuoteItemId &&
+                                      factorLabels[conceptoActivoQuoteItemId]) ||
+                                    ""
+                                  }
+                                  onChange={(e) => {
+                                    if (!conceptoActivoQuoteItemId) return;
+                                    setFactorLabels((prev) => ({
+                                      ...prev,
+                                      [conceptoActivoQuoteItemId]: e.target.value,
+                                    }));
+                                  }}
+                                  onBlur={(e) => guardarFactorLabel(e.target.value)}
+                                  placeholder="× Factor"
+                                  title="Edita este encabezado (ej. 'Altura ft'). Cada medición se multiplica por su factor para convertirla a la unidad del concepto."
+                                  className="w-16 rounded border border-dashed border-gray-300 bg-white px-1 py-0.5 text-center text-[9px] font-semibold text-gray-700 focus:border-roca-gold focus:outline-none"
+                                />
+                              </th>
+                              <th className="px-1 py-1 text-right font-semibold">
+                                = {conceptoIdx != null ? conceptos[conceptoIdx].unidad : ""}
+                              </th>
+                              <th className="w-4"></th>
                             </tr>
                           </thead>
                           <tbody>
                             {medicionesDelConcepto.length === 0 ? (
                               <tr>
                                 <td
-                                  colSpan={4}
+                                  colSpan={6}
                                   className="px-2 py-4 text-center text-[10px] italic text-gray-400"
                                 >
                                   {calibracionHook.calibracion
-                                    ? "Activa una herramienta (Línea / Polilínea / Piezas) y dibuja sobre el plano."
+                                    ? "Activa una herramienta (Línea / Polilínea / Área / Piezas) y dibuja sobre el plano."
                                     : "Primero calibra la escala (📏 Calibrar H o 📐 Calibrar V)."}
                                 </td>
                               </tr>
@@ -1124,6 +1170,9 @@ export default function VisorPlano({
                                   onActualizarNota={(nota) =>
                                     medicionesHook.actualizarNota(m.id, nota)
                                   }
+                                  onActualizarFactor={(f) =>
+                                    medicionesHook.actualizarFactor(m.id, f)
+                                  }
                                   onBorrar={() => borrarMedicion(m.id)}
                                 />
                               ))
@@ -1132,12 +1181,12 @@ export default function VisorPlano({
                           <tfoot className="bg-gray-50">
                             <tr>
                               <td
-                                colSpan={2}
+                                colSpan={4}
                                 className="px-2 py-1.5 text-right font-semibold text-gray-600"
                               >
                                 TOTAL ({conceptos[conceptoIdx].unidad}):
                               </td>
-                              <td className="px-2 py-1.5 text-right font-bold text-roca-gold-soft">
+                              <td className="px-1 py-1.5 text-right font-bold text-roca-gold-soft">
                                 {totalMediciones.toFixed(2)}
                               </td>
                               <td />
@@ -1367,42 +1416,62 @@ export default function VisorPlano({
   );
 }
 
-// Fila de medición con edición de etiqueta inline + color del concepto
+// Fila de medición: etiqueta inline + valor crudo + factor de conversión
+// editable + resultado en la unidad del concepto.
 function FilaMedicion({
   numero,
   medicion,
   color,
   onActualizarNota,
+  onActualizarFactor,
   onBorrar,
 }: {
   numero: number;
   medicion: Medicion;
   color: string;
   onActualizarNota: (nota: string) => void | Promise<void>;
+  onActualizarFactor: (factor: number) => void | Promise<void>;
   onBorrar: () => void;
 }) {
   const [editando, setEditando] = useState(false);
   const [nota, setNota] = useState(medicion.nota ?? "");
+  const [factorStr, setFactorStr] = useState(String(medicion.factor ?? 1));
 
   useEffect(() => {
     setNota(medicion.nota ?? "");
   }, [medicion.nota]);
+
+  useEffect(() => {
+    setFactorStr(String(medicion.factor ?? 1));
+  }, [medicion.factor]);
 
   function guardar() {
     onActualizarNota(nota);
     setEditando(false);
   }
 
+  function guardarFactor() {
+    const f = Number(factorStr);
+    if (Number.isFinite(f) && f > 0 && f !== Number(medicion.factor)) {
+      onActualizarFactor(f);
+    } else {
+      setFactorStr(String(medicion.factor ?? 1));
+    }
+  }
+
+  const resultado =
+    (Number(medicion.valor) || 0) * (Number(medicion.factor) || 1);
+
   return (
     <tr className="border-t border-gray-100">
-      <td className="px-1 py-1 text-center">
+      <td className="px-1 py-1 text-center whitespace-nowrap">
         <span
           className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: color }}
         />
         <span className="ml-0.5 text-gray-400">{numero}</span>
       </td>
-      <td className="px-2 py-1 text-gray-700">
+      <td className="px-1 py-1 text-gray-700">
         {editando ? (
           <input
             autoFocus
@@ -1428,15 +1497,29 @@ function FilaMedicion({
             {medicion.nota ? (
               <span className="text-gray-900">{medicion.nota}</span>
             ) : (
-              <span className="text-gray-400">
-                ✏️ {medicion.tipo}
-              </span>
+              <span className="text-gray-400">✏️ {medicion.tipo}</span>
             )}
           </button>
         )}
       </td>
-      <td className="px-2 py-1 text-right font-mono font-semibold text-gray-900">
+      <td className="px-1 py-1 text-right font-mono text-gray-600 whitespace-nowrap">
         {Number(medicion.valor).toFixed(2)} {medicion.unidad}
+      </td>
+      <td className="px-1 py-1 text-center">
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={factorStr}
+          onChange={(e) => setFactorStr(e.target.value)}
+          onBlur={guardarFactor}
+          onKeyDown={(e) => e.key === "Enter" && guardarFactor()}
+          title="Factor de conversión: el valor medido se multiplica por esta cifra (ej. la altura del muro)"
+          className="w-12 rounded border border-gray-200 bg-white px-1 py-0.5 text-right font-mono text-[10px] text-gray-900 hover:border-gray-300 focus:border-roca-gold focus:outline-none"
+        />
+      </td>
+      <td className="px-1 py-1 text-right font-mono font-semibold text-gray-900 whitespace-nowrap">
+        {resultado.toFixed(2)}
       </td>
       <td className="px-1 py-1 text-center">
         <button

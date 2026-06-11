@@ -28,6 +28,8 @@ export interface Medicion {
   tipo: TipoMedicion;
   valor: number;
   unidad: string;
+  /** Multiplicador de conversión a la unidad del concepto (ej. altura del muro). */
+  factor: number;
   puntos: [number, number][];
   nota: string | null;
   created_at: string;
@@ -50,6 +52,8 @@ export interface UseMedicionesResult {
   }) => Promise<Medicion | null>;
   /** Actualiza la nota/etiqueta de una medición existente. */
   actualizarNota: (id: string, nota: string) => Promise<void>;
+  /** Actualiza el factor de conversión (ej. altura del muro) de una medición. */
+  actualizarFactor: (id: string, factor: number) => Promise<void>;
   borrar: (id: string) => Promise<void>;
   /** Total numérico de las mediciones de un concepto específico. */
   totalConcepto: (quote_item_id: string) => number;
@@ -159,6 +163,22 @@ export function useMediciones(
     [quoteId]
   );
 
+  const actualizarFactor = useCallback(async (id: string, factor: number) => {
+    setError(null);
+    const f = Number.isFinite(factor) && factor > 0 ? factor : 1;
+    const { error: e } = await supabase
+      .from("quote_mediciones")
+      .update({ factor: f, updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (e) {
+      setError(`No se pudo actualizar el factor: ${e.message}`);
+      return;
+    }
+    setMediciones((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, factor: f } : m))
+    );
+  }, []);
+
   const actualizarNota = useCallback(async (id: string, nota: string) => {
     setError(null);
     const limpia = nota.trim() || null;
@@ -192,7 +212,10 @@ export function useMediciones(
     (quote_item_id: string) => {
       return mediciones
         .filter((m) => m.quote_item_id === quote_item_id)
-        .reduce((acc, m) => acc + (Number(m.valor) || 0), 0);
+        .reduce(
+          (acc, m) => acc + (Number(m.valor) || 0) * (Number(m.factor) || 1),
+          0
+        );
     },
     [mediciones]
   );
@@ -203,6 +226,7 @@ export function useMediciones(
     error,
     agregar,
     actualizarNota,
+    actualizarFactor,
     borrar,
     totalConcepto,
     refresh,
