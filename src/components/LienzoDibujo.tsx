@@ -17,7 +17,15 @@
 
 import { useState } from "react";
 import { Stage, Layer, Line, Circle, Text, Group, Rect } from "react-konva";
-import type Konva from "konva";
+import Konva from "konva";
+
+// Buffer del canvas a 1x (sin multiplicar por devicePixelRatio). En pantallas
+// Windows con escala 125-150% el buffer se duplicaba y los planos grandes
+// (ARCH D/E con zoom) excedían los límites de canvas del navegador → el Stage
+// fallaba en silencio y partes del plano quedaban sin área medible.
+if (typeof window !== "undefined") {
+  Konva.pixelRatio = 1;
+}
 
 export type ModoDibujo =
   | "mover"

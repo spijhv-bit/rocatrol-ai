@@ -396,8 +396,28 @@ export default function VisorPlano({
     }
   }
 
+  // Límite de zoom DINÁMICO: el lado mayor del canvas renderizado no debe
+  // pasar de ~12000 px (límite seguro multi-navegador). Con planos grandes
+  // (ARCH D/E), zooms altos creaban canvas que el navegador no puede manejar
+  // y el área de medición fallaba en silencio.
+  const MAX_LADO_CANVAS = 12000;
+  const zoomMaxDinamico = pdfDims
+    ? Math.max(
+        ZOOM_MIN,
+        Math.min(ZOOM_MAX, MAX_LADO_CANVAS / Math.max(pdfDims.width, pdfDims.height))
+      )
+    : ZOOM_MAX;
+
+  // Si la página actual es tan grande que el zoom vigente excede el límite,
+  // bajarlo automáticamente.
+  useEffect(() => {
+    if (escala > zoomMaxDinamico) {
+      setEscala(Number(zoomMaxDinamico.toFixed(2)));
+    }
+  }, [zoomMaxDinamico, escala]);
+
   function zoomIn() {
-    setEscala((e) => Math.min(ZOOM_MAX, Number((e + ZOOM_STEP).toFixed(2))));
+    setEscala((e) => Math.min(zoomMaxDinamico, Number((e + ZOOM_STEP).toFixed(2))));
   }
   function zoomOut() {
     setEscala((e) => Math.max(ZOOM_MIN, Number((e - ZOOM_STEP).toFixed(2))));
@@ -947,7 +967,21 @@ export default function VisorPlano({
                 // tamaño del PDF cuando hay zoom, permitiendo scroll a ambos
                 // ejes en lugar de centrar y recortar.
                 <div className="inline-block min-w-full">
-                  <div className="relative">
+                  {/* Contenedor con el tamaño EXACTO del PDF renderizado:
+                      canvas del PDF y Stage de Konva quedan alineados POR
+                      CONSTRUCCIÓN (ambos llenan este box desde 0,0). Evita
+                      desfases que dejaban zonas del plano sin área medible. */}
+                  <div
+                    className="relative"
+                    style={
+                      pdfDims
+                        ? {
+                            width: Math.round(pdfDims.width * escala),
+                            height: Math.round(pdfDims.height * escala),
+                          }
+                        : undefined
+                    }
+                  >
                     <Document
                       file={urlFirmada}
                       onLoadSuccess={(pdf) => setTotalPaginas(pdf.numPages)}
