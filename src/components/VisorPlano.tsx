@@ -148,7 +148,17 @@ export default function VisorPlano({
 
   // Sprint 3: dibujo
   const [modoDibujo, setModoDibujo] = useState<ModoDibujo>("mover");
-  const [pdfDims, setPdfDims] = useState<{ width: number; height: number } | null>(null);
+  // Dimensiones REALES del canvas del PDF medidas en el DOM (no calculadas):
+  // los planos con rotación o unidades internas rompen las matemáticas de
+  // originalWidth × escala (síntoma: solo se podía medir en una fracción).
+  // `escala` guarda el zoom con el que se midió, para que el Stage y las
+  // conversiones a coordenadas base siempre sean coherentes entre sí.
+  const [lienzoDims, setLienzoDims] = useState<{
+    w: number;
+    h: number;
+    escala: number;
+  } | null>(null);
+  const pageWrapRef = useRef<HTMLDivElement>(null);
   // Dialogo abierto tras 2 clicks de calibración: pide medida real
   const [dialogoCalibrar, setDialogoCalibrar] = useState<{
     eje: "x" | "y";
@@ -236,10 +246,25 @@ export default function VisorPlano({
   }, [planoActivoId, paginaActual, conceptoIdx]);
 
   // Reset de dimensiones al cambiar plano o página: cada página puede tener
-  // tamaño distinto; el onLoadSuccess del Page repone las correctas.
+  // tamaño distinto; el onRenderSuccess del Page re-mide las correctas.
   useEffect(() => {
-    setPdfDims(null);
+    setLienzoDims(null);
   }, [planoActivoId, paginaActual]);
+
+  // Mide el tamaño VISUAL real del canvas del PDF en el DOM. Se llama en
+  // cada onRenderSuccess (zoom, cambio de página) — fuente de verdad única.
+  const medirCanvas = useCallback(() => {
+    const canvas = pageWrapRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const r = canvas.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) {
+      setLienzoDims({
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+        escala,
+      });
+    }
+  }, [escala]);
 
   // Limpiar el mensaje de error al cambiar de herramienta o cerrar el diálogo
   // de calibración (evita que "Indica una medida mayor que 0" se quede pegado).
@@ -399,13 +424,14 @@ export default function VisorPlano({
   // Límite de zoom DINÁMICO: el lado mayor del canvas renderizado no debe
   // pasar de ~12000 px (límite seguro multi-navegador). Con planos grandes
   // (ARCH D/E), zooms altos creaban canvas que el navegador no puede manejar
-  // y el área de medición fallaba en silencio.
+  // y el área de medición fallaba en silencio. Base = medida real / zoom de
+  // la medida.
   const MAX_LADO_CANVAS = 12000;
-  const zoomMaxDinamico = pdfDims
-    ? Math.max(
-        ZOOM_MIN,
-        Math.min(ZOOM_MAX, MAX_LADO_CANVAS / Math.max(pdfDims.width, pdfDims.height))
-      )
+  const ladoMayorBase = lienzoDims
+    ? Math.max(lienzoDims.w, lienzoDims.h) / lienzoDims.escala
+    : null;
+  const zoomMaxDinamico = ladoMayorBase
+    ? Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, MAX_LADO_CANVAS / ladoMayorBase))
     : ZOOM_MAX;
 
   // Si la página actual es tan grande que el zoom vigente excede el límite,
@@ -967,18 +993,16 @@ export default function VisorPlano({
                 // tamaño del PDF cuando hay zoom, permitiendo scroll a ambos
                 // ejes en lugar de centrar y recortar.
                 <div className="inline-block min-w-full">
-                  {/* Contenedor con el tamaño EXACTO del PDF renderizado:
+                  {/* Contenedor con el tamaño REAL del canvas (medido en DOM):
                       canvas del PDF y Stage de Konva quedan alineados POR
-                      CONSTRUCCIÓN (ambos llenan este box desde 0,0). Evita
-                      desfases que dejaban zonas del plano sin área medible. */}
+                      CONSTRUCCIÓN. Se mide en cada render del PDF — funciona
+                      con cualquier rotación/unidad interna del plano. */}
                   <div
+                    ref={pageWrapRef}
                     className="relative"
                     style={
-                      pdfDims
-                        ? {
-                            width: Math.round(pdfDims.width * escala),
-                            height: Math.round(pdfDims.height * escala),
-                          }
+                      lienzoDims
+                        ? { width: lienzoDims.w, height: lienzoDims.h }
                         : undefined
                     }
                   >
@@ -1001,26 +1025,19 @@ export default function VisorPlano({
                         renderAnnotationLayer={false}
                         renderTextLayer={false}
                         className="shadow-lg"
-                        onLoadSuccess={(page) => {
-                          // Dimensiones BASE de la página (scale = 1). El lienzo
-                          // las multiplica por el zoom ACTUAL en cada render, así
-                          // SIEMPRE cubre todo el plano aunque cambie el zoom.
-                          // (Antes se capturaba el tamaño renderizado una sola vez
-                          // y al hacer zoom el área medible quedaba corta.)
-                          setPdfDims({
-                            width: page.originalWidth,
-                            height: page.originalHeight,
-                          });
-                        }}
+                        onRenderSuccess={medirCanvas}
                       />
                     </Document>
 
-                    {/* Lienzo de dibujo Konva encima del PDF (Sprint 3) */}
-                    {pdfDims && (
+                    {/* Lienzo de dibujo Konva encima del PDF (Sprint 3).
+                        Usa las dimensiones MEDIDAS y el zoom con el que se
+                        midieron — Stage y conversión a coords base siempre
+                        coherentes entre sí. */}
+                    {lienzoDims && (
                       <LienzoDibujo
-                        width={Math.round(pdfDims.width * escala)}
-                        height={Math.round(pdfDims.height * escala)}
-                        zoomPDF={escala}
+                        width={lienzoDims.w}
+                        height={lienzoDims.h}
+                        zoomPDF={lienzoDims.escala}
                         modo={modoDibujo}
                         escalaX={calibracionHook.calibracion?.escala_x ?? null}
                         escalaY={calibracionHook.calibracion?.escala_y ?? null}
