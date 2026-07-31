@@ -57,6 +57,8 @@ export interface UseQuoteAutosaveResult {
   cargar: (id: string, folio: string | null) => void;
   /** Limpia el estado para empezar una cotización nueva desde cero. */
   reset: () => void;
+  /** Contador que sube en cada guardado exitoso de conceptos (para reconciliar uids). */
+  itemsGuardados: number;
 }
 
 const DEBOUNCE_MS = 2000;
@@ -68,6 +70,10 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
   const [savingHeader, setSavingHeader] = useState(false);
   const [savingItems, setSavingItems] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Se incrementa cada vez que los conceptos se guardan con éxito. La pantalla
+  // lo usa para reconciliar los `uid` locales con los IDs reales de la BD
+  // (necesario para que el APU de un concepto recién creado sí se guarde).
+  const [itemsGuardados, setItemsGuardados] = useState(0);
 
   // Refs internas (evitan closures stale en setTimeout)
   const pendingHeaderRef = useRef<Partial<QuoteHeader>>({});
@@ -170,6 +176,7 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
       });
       if (rpcError) throw rpcError;
       setSavedAt(new Date());
+      setItemsGuardados((n) => n + 1);
     } catch (err) {
       pendingItemsRef.current = conceptos;
       setError(err instanceof Error ? err.message : "No se pudieron guardar los conceptos.");
@@ -258,5 +265,6 @@ export function useQuoteAutosave(session: Session | null): UseQuoteAutosaveResul
     updateConceptos,
     cargar,
     reset,
+    itemsGuardados,
   };
 }

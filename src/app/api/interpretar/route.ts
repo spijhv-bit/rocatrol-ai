@@ -12,11 +12,22 @@ import {
   type ConceptoPropuesto,
   type ObraContexto,
 } from "@/lib/agentes/interprete";
+import {
+  autenticar,
+  cuerpoDemasiadoGrande,
+  registrarUso,
+} from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // el Intérprete puede tardar hasta ~60s
 
 export async function POST(req: NextRequest) {
+  // Fase 0: sesión válida + cuota + tamaño del cuerpo, ANTES de leer nada.
+  const grande = cuerpoDemasiadoGrande(req);
+  if (grande) return grande;
+  const ctx = await autenticar(req, "interprete");
+  if (ctx instanceof NextResponse) return ctx;
+
   try {
     const body = await req.json().catch(() => null);
 
@@ -59,10 +70,25 @@ export async function POST(req: NextRequest) {
       conceptos_actuales,
       preguntas_previas,
     });
+
+    await registrarUso(ctx, {
+      modelo: result.meta?.modelo,
+      input_tokens: result.meta?.input_tokens,
+      output_tokens: result.meta?.output_tokens,
+      costo_usd: result.meta?.costo_usd,
+      quote_id: typeof body?.quote_id === "string" ? body.quote_id : null,
+      meta: {
+        archivos: archivos.length,
+        conceptos_devueltos: result.conceptos?.length ?? 0,
+        descripcion_chars: descripcion.length,
+      },
+    });
+
     return NextResponse.json(result);
   } catch (err) {
     console.error("Error en /api/interpretar:", err);
     const msg = err instanceof Error ? err.message : "Error desconocido";
+    await registrarUso(ctx, { ok: false, error_msg: msg });
     return NextResponse.json(
       { error: `No se pudo interpretar la descripción: ${msg}` },
       { status: 500 }

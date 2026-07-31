@@ -25,13 +25,50 @@ import TablaUnidades from "@/components/TablaUnidades";
 import { useAuth } from "@/lib/auth-context";
 import { useQuoteAutosave, type QuoteHeader } from "@/lib/hooks/useQuoteAutosave";
 import { useMisCotizaciones } from "@/lib/hooks/useMisCotizaciones";
+import { useApuPersistencia } from "@/lib/hooks/useApuPersistencia";
 import { supabase } from "@/lib/supabase";
+import { postIA, ErrorIA } from "@/lib/api-client";
 import type {
   InterpretacionResponse,
   ConceptoPropuesto,
   ArchivoInput,
   RespuestaPregunta,
 } from "@/lib/agentes/interprete";
+
+// ---------------------------------------------------------------------------
+// CLAVE ESTABLE POR CONCEPTO (`uid`) — Fase 1, 30-jul-2026
+//
+// Antes, el precio, la tarjeta APU y el generador de cada concepto se guardaban
+// en mapas indexados por la POSICIÓN del concepto en el arreglo. Cualquier
+// cambio estructural corría los índices y los precios quedaban pegados al
+// concepto equivocado:
+//   · borrar el concepto 3 de 10 → el precio del 4 aparecía como del 3
+//   · agregar un concepto a una partida (que INSERTA en medio con splice)
+//     corría todos los precios de abajo
+// Es un bug de facturación: el cliente recibe una cotización con precios que no
+// son los suyos. Ahora cada concepto lleva un `uid` que no cambia nunca y los
+// mapas se indexan por ese `uid`.
+//
+// El `uid` es de vida de sesión: al cargar de la BD se usa el `id` real de la
+// fila `quote_items`, que sobrevive gracias al UPSERT de la migración 0011.
+// ---------------------------------------------------------------------------
+export type ConceptoUI = ConceptoPropuesto & { uid: string };
+
+/** Distingue un id real de fila (`quote_items.id`) de un uid local recién creado. */
+const ES_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function nuevoUid(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `c_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+/** Envuelve conceptos que vienen de la IA o del seed con su clave estable. */
+function conUid(c: ConceptoPropuesto, uid?: string): ConceptoUI {
+  return { ...c, uid: uid ?? nuevoUid() };
+}
 
 // Mapea el tipo_obra que devuelve el Intérprete a una especialidad del seed.
 // Sirve para autoseleccionar el filtro del Buscador de Conceptos.
@@ -127,7 +164,7 @@ function iconoPorPartida(partida: string): string {
 interface GrupoPartida {
   partida: string;
   letra: string; // A, B, C, ...
-  items: Array<{ concepto: ConceptoPropuesto; idxGlobal: number; numero: string }>;
+  items: Array<{ concepto: ConceptoUI; idxGlobal: number; numero: string }>;
 }
 
 // 0→A, 1→B, ..., 25→Z, 26→AA, etc.
@@ -143,9 +180,9 @@ function letraPartida(idx: number): string {
 
 // Agrupa conceptos por partida preservando el orden de aparición y asigna numeración
 // profesional estilo Eazima Group: A. partida → A.1, A.2, A.3; B. partida → B.1, B.2.
-function agruparPorPartida(conceptos: ConceptoPropuesto[]): GrupoPartida[] {
+function agruparPorPartida(conceptos: ConceptoUI[]): GrupoPartida[] {
   const orden: string[] = [];
-  const buckets = new Map<string, Array<{ concepto: ConceptoPropuesto; idxGlobal: number }>>();
+  const buckets = new Map<string, Array<{ concepto: ConceptoUI; idxGlobal: number }>>();
   conceptos.forEach((c, idxGlobal) => {
     const key = (c.partida || "Sin partida").trim();
     if (!buckets.has(key)) {
@@ -212,7 +249,7 @@ export default function CotizarPage() {
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resultado, setResultado] = useState<InterpretacionResponse | null>(null);
-  const [conceptos, setConceptos] = useState<ConceptoPropuesto[]>([]);
+  const [conceptos, setConceptos] = useState<ConceptoUI[]>([]);
   const [respuestas, setRespuestas] = useState<Record<number, string>>({});
   // Acumulado de preguntas que el Intérprete YA hizo. Se envía en cada llamada
   // para que no las repita (instrucción del prompt v2 del Intérprete).
@@ -229,14 +266,15 @@ export default function CotizarPage() {
     abierto: false,
     idx: -1,
   });
-  const [precios, setPrecios] = useState<Record<number, number>>({}); // costo directo unitario
-  const [tpus, setTpus] = useState<Record<number, InsumoAPU[]>>({}); // insumos por concepto
+  // Indexados por `uid` del concepto (NO por posición — ver nota de ConceptoUI).
+  const [precios, setPrecios] = useState<Record<string, number>>({}); // costo directo unitario
+  const [tpus, setTpus] = useState<Record<string, InsumoAPU[]>>({}); // insumos por concepto
   // Generador de cantidad (Capa 2): tabla tipo Excel por concepto (indexado por idx)
   const [cuantModal, setCuantModal] = useState<{ abierto: boolean; idx: number }>({
     abierto: false,
     idx: -1,
   });
-  const [generadores, setGeneradores] = useState<Record<number, GeneradorData>>({});
+  const [generadores, setGeneradores] = useState<Record<string, GeneradorData>>({});
   // Visor de plano (Sprint 1 del Takeoff)
   const [visorPlanoAbierto, setVisorPlanoAbierto] = useState(false);
   // Tabla de consulta de unidades de construcción (repositorio único)
@@ -251,6 +289,81 @@ export default function CotizarPage() {
   const [pctCotizacion, setPctCotizacion] = useState<PorcentajesAPU>(
     PORCENTAJES_DEFAULT_AVANZADO
   );
+
+  // Persistencia del motor APU (Fase 1): antes todo esto vivía solo en memoria
+  // y se perdía al recargar la página.
+  const apuDB = useApuPersistencia();
+
+  // Guarda la cascada de porcentajes de la cotización cuando el usuario la toca
+  // (debounce 1.5 s para no escribir en cada tecla).
+  useEffect(() => {
+    if (!autosave.quoteId || cargandoCotizacionRef.current) return;
+    const t = setTimeout(() => {
+      void apuDB.guardarCascada(autosave.quoteId!, pctCotizacion);
+    }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pctCotizacion, autosave.quoteId]);
+
+  // -------------------------------------------------------------------------
+  // RECONCILIAR uid LOCAL ↔ id REAL DE LA BASE DE DATOS
+  //
+  // Un concepto recién creado tiene un uid local (no un UUID de fila). Cuando
+  // el autosave lo escribe, la BD le asigna su id. Aquí adoptamos ese id como
+  // uid y movemos con él su precio, su tarjeta APU y su generador — si no, el
+  // APU de un concepto nuevo no tendría dónde guardarse.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!autosave.quoteId || conceptos.length === 0) return;
+    if (conceptos.every((c) => ES_UUID.test(c.uid))) return; // ya está todo bien
+
+    let cancelado = false;
+    (async () => {
+      const { data, error: e } = await supabase
+        .from("quote_items")
+        .select("id, clave")
+        .eq("quote_id", autosave.quoteId!);
+      if (cancelado || e || !data) return;
+
+      const idPorClave = new Map<string, string>();
+      for (const row of data) {
+        if (row.clave) idPorClave.set(String(row.clave).trim(), row.id);
+      }
+
+      const renombres: Array<[string, string]> = [];
+      setConceptos((prev) =>
+        prev.map((c) => {
+          if (ES_UUID.test(c.uid)) return c;
+          const idReal = idPorClave.get((c.clave ?? "").trim());
+          if (!idReal || idReal === c.uid) return c;
+          renombres.push([c.uid, idReal]);
+          return { ...c, uid: idReal };
+        })
+      );
+
+      if (renombres.length > 0) {
+        const mover = <T,>(m: Record<string, T>): Record<string, T> => {
+          const copia = { ...m };
+          for (const [viejo, nuevo] of renombres) {
+            if (viejo in copia) {
+              copia[nuevo] = copia[viejo];
+              delete copia[viejo];
+            }
+          }
+          return copia;
+        };
+        setPrecios(mover);
+        setTpus(mover);
+        setGeneradores(mover);
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+    // Se dispara tras cada guardado exitoso de conceptos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autosave.itemsGuardados, autosave.quoteId]);
 
   // Sincronizar conceptos editables con la nube (debounce 2s, espera a tener quoteId).
   // Si estamos cargando una cotización del sidebar, NO re-guardamos lo que
@@ -311,7 +424,7 @@ export default function CotizarPage() {
       cargandoCotizacionRef.current = true;
       const { data: quote, error: qErr } = await supabase
         .from("quotes")
-        .select("id, folio, name, input_text, language, status, ai_meta, is_template, project_address, project_city, project_state, property_type, work_type, work_area_sf, site_contact_name, site_contact_phone, start_date, end_date, work_schedule")
+        .select("id, folio, name, input_text, language, status, ai_meta, is_template, pct_cascada, project_address, project_city, project_state, property_type, work_type, work_area_sf, site_contact_name, site_contact_phone, start_date, end_date, work_schedule")
         .eq("id", quoteId)
         .maybeSingle();
       if (qErr) throw qErr;
@@ -319,7 +432,7 @@ export default function CotizarPage() {
 
       const { data: items, error: iErr } = await supabase
         .from("quote_items")
-        .select("clave, partida, description_es, unit, quantity, ai_confidence, sort_order")
+        .select("id, clave, partida, description_es, unit, quantity, ai_confidence, sort_order")
         .eq("quote_id", quoteId)
         .order("sort_order", { ascending: true });
       if (iErr) throw iErr;
@@ -350,7 +463,10 @@ export default function CotizarPage() {
       setError(null);
 
       const meta = (quote.ai_meta ?? {}) as Record<string, unknown>;
-      const conceptosCargados: ConceptoPropuesto[] = (items ?? []).map((it) => ({
+      // El `uid` toma el id REAL de la fila: sobrevive entre sesiones porque
+      // `replace_quote_items` v2 (migración 0011) hace UPSERT y conserva los IDs.
+      const conceptosCargados: ConceptoUI[] = (items ?? []).map((it) => ({
+        uid: it.id,
         clave: it.clave ?? "",
         partida: it.partida ?? "",
         descripcion_es: it.description_es ?? "",
@@ -359,6 +475,17 @@ export default function CotizarPage() {
         confianza: Number(it.ai_confidence ?? 1),
       }));
       setConceptos(conceptosCargados);
+
+      // Recuperar el motor APU: tarjetas de precio, insumos y generadores.
+      // (Antes de la Fase 1 esto no existía y el trabajo se perdía al recargar.)
+      const apu = await apuDB.cargarTodo(quoteId);
+      setPrecios(apu.precios);
+      setTpus(apu.tpus);
+      setGeneradores(apu.generadores);
+      const cascadaGuardada = quote.pct_cascada as PorcentajesAPU | null;
+      if (cascadaGuardada && cascadaGuardada.modo) {
+        setPctCotizacion(cascadaGuardada);
+      }
 
       // Reconstruir un `resultado` parcial para que el wizard muestre la vista
       // "ya hay catálogo" en lugar de la pantalla inicial. Las preguntas no
@@ -391,7 +518,7 @@ export default function CotizarPage() {
       cargandoCotizacionRef.current = false;
       setError(err instanceof Error ? err.message : "No se pudo cargar la cotización.");
     }
-  }, [autosave]);
+  }, [autosave, apuDB]);
 
   // -------------------------------------------------------------------------
   // TOGGLE plantilla (marca/desmarca is_template) — Bloque 3B
@@ -531,20 +658,16 @@ export default function CotizarPage() {
     setError(null);
     setCargando(true);
     try {
-      const res = await fetch("/api/interpretar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const r = await postIA<InterpretacionResponse>("/api/interpretar", {
+        ...payload,
+        quote_id: autosave.quoteId ?? undefined,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al interpretar.");
-      const r = data as InterpretacionResponse;
       // Defensa: si el modelo omite arrays, tratarlos como vacíos (no romper).
       const preguntasR = r.preguntas ?? [];
       r.conceptos = r.conceptos ?? [];
       r.preguntas = preguntasR;
       setResultado(r);
-      setConceptos(r.conceptos);
+      setConceptos(r.conceptos.map((c) => conUid(c)));
       setRespuestas({});
       // Si la IA no desglosó ningún concepto (y no hay preguntas), avisar.
       if (r.conceptos.length === 0 && preguntasR.length === 0) {
@@ -658,7 +781,26 @@ export default function CotizarPage() {
   }
 
   function borrarConcepto(idx: number) {
-    setConceptos((prev) => prev.filter((_, i) => i !== idx));
+    setConceptos((prev) => {
+      const fuera = prev[idx];
+      if (fuera) limpiarDatosDeConcepto([fuera.uid]);
+      return prev.filter((_, i) => i !== idx);
+    });
+  }
+
+  /**
+   * Suelta el precio, la tarjeta APU y el generador de conceptos eliminados,
+   * para que no queden datos huérfanos ocupando memoria ni reapareciendo si
+   * el usuario vuelve a crear un concepto.
+   */
+  function limpiarDatosDeConcepto(uids: string[]) {
+    if (uids.length === 0) return;
+    const fuera = new Set(uids);
+    const sinLosBorrados = <T,>(m: Record<string, T>): Record<string, T> =>
+      Object.fromEntries(Object.entries(m).filter(([k]) => !fuera.has(k)));
+    setPrecios(sinLosBorrados);
+    setTpus(sinLosBorrados);
+    setGeneradores(sinLosBorrados);
   }
 
   // Llama al Preciador para TODOS los conceptos sin precio. Itera secuencial.
@@ -666,8 +808,8 @@ export default function CotizarPage() {
     const pendientes = conceptos
       .map((c, i) => ({ c, i }))
       .filter(
-        ({ c, i }) =>
-          precios[i] == null &&
+        ({ c }) =>
+          precios[c.uid] == null &&
           c.descripcion_es.trim().length > 0 &&
           (c.unidad ?? "").trim().length > 0
       );
@@ -678,27 +820,28 @@ export default function CotizarPage() {
     setError(null);
     setCalcTodos({ hecho: 0, total: pendientes.length, errores: 0 });
 
-    for (const { c, i } of pendientes) {
+    // Si el servidor corta por cuota (429) o la sesión expiró (401), no tiene
+    // sentido seguir con los 39 conceptos restantes: se aborta y se avisa.
+    let motivoCorte: string | null = null;
+
+    for (const { c } of pendientes) {
       try {
-        const res = await fetch("/api/preciar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            descripcion: c.descripcion_es,
-            unidad: c.unidad,
-            partida: c.partida,
-            estado: obra.project_state || "TX",
-            ciudad: obra.project_city.trim() || undefined,
-            horario: obra.work_schedule || undefined,
-            modo: "avanzado",
-          }),
+        const data = await postIA<{ insumos?: InsumoAPU[] }>("/api/preciar", {
+          descripcion: c.descripcion_es,
+          unidad: c.unidad,
+          partida: c.partida,
+          estado: obra.project_state || "TX",
+          ciudad: obra.project_city.trim() || undefined,
+          horario: obra.work_schedule || undefined,
+          modo: "avanzado",
+          quote_id: autosave.quoteId ?? undefined,
         });
-        const data = await res.json();
-        if (res.ok && Array.isArray(data.insumos)) {
+        if (Array.isArray(data.insumos)) {
           const insumos = data.insumos as InsumoAPU[];
           const costoDirecto = calcularCostoDirecto(insumos).costo_directo;
-          setTpus((prev) => ({ ...prev, [i]: insumos }));
-          setPrecios((prev) => ({ ...prev, [i]: costoDirecto }));
+          setTpus((prev) => ({ ...prev, [c.uid]: insumos }));
+          setPrecios((prev) => ({ ...prev, [c.uid]: costoDirecto }));
+          void apuDB.guardarTPU(c.uid, c.unidad, insumos, pctCotizacion);
           setCalcTodos((prev) =>
             prev ? { ...prev, hecho: prev.hecho + 1 } : null
           );
@@ -709,7 +852,11 @@ export default function CotizarPage() {
               : null
           );
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof ErrorIA && (err.status === 429 || err.status === 401)) {
+          motivoCorte = err.message;
+          break;
+        }
         setCalcTodos((prev) =>
           prev
             ? { ...prev, hecho: prev.hecho + 1, errores: prev.errores + 1 }
@@ -717,6 +864,8 @@ export default function CotizarPage() {
         );
       }
     }
+
+    if (motivoCorte) setError(motivoCorte);
     // Auto-ocultar el indicador tras 4 segundos
     setTimeout(() => setCalcTodos(null), 4000);
   }
@@ -725,6 +874,7 @@ export default function CotizarPage() {
     setConceptos((prev) => [
       ...prev,
       {
+        uid: nuevoUid(),
         clave: String(prev.length + 1).padStart(2, "0"),
         partida: "",
         descripcion_es: "",
@@ -749,7 +899,8 @@ export default function CotizarPage() {
       prev.forEach((c, i) => {
         if ((c.partida || "Sin partida").trim() === partida) lastIdx = i;
       });
-      const nuevo: ConceptoPropuesto = {
+      const nuevo: ConceptoUI = {
+        uid: nuevoUid(),
         clave: String(prev.length + 1).padStart(2, "0"),
         partida,
         descripcion_es: "",
@@ -771,7 +922,8 @@ export default function CotizarPage() {
       prev.forEach((c, i) => {
         if ((c.partida || "Sin partida").trim() === partida) lastIdx = i;
       });
-      const nuevo: ConceptoPropuesto = {
+      const nuevo: ConceptoUI = {
+        uid: nuevoUid(),
         clave: String(prev.length + 1).padStart(2, "0"),
         partida,
         descripcion_es: seed.descripcion_es,
@@ -795,9 +947,13 @@ export default function CotizarPage() {
       )
     )
       return;
-    setConceptos((prev) =>
-      prev.filter((c) => (c.partida || "Sin partida").trim() !== partida)
-    );
+    setConceptos((prev) => {
+      const fuera = prev.filter(
+        (c) => (c.partida || "Sin partida").trim() === partida
+      );
+      limpiarDatosDeConcepto(fuera.map((c) => c.uid));
+      return prev.filter((c) => (c.partida || "Sin partida").trim() !== partida);
+    });
   }
 
   // Etapa activa para sincronizar con el sidebar (los IDs deben coincidir con ETAPAS).
@@ -1321,17 +1477,17 @@ export default function CotizarPage() {
                                   title="Calcular la cantidad con el generador (medidas tipo Excel)"
                                   className="mt-1 w-full rounded border border-roca-gold/40 px-1 py-0.5 text-[9px] font-semibold text-roca-gold-soft transition hover:bg-roca-gold/10"
                                 >
-                                  {generadores[i] ? "📐 Editar medidas" : "📐 Calcular"}
+                                  {generadores[c.uid] ? "📐 Editar medidas" : "📐 Calcular"}
                                 </button>
                               </td>
                               <td className="px-2 py-1.5 text-right align-top">
-                                {precios[i] != null ? (
+                                {precios[c.uid] != null ? (
                                   <button
                                     onClick={() => setTpuModal({ abierto: true, idx: i })}
                                     title="Ver / editar el análisis de precio unitario"
                                     className="text-[11px] font-semibold text-roca-gold-soft underline-offset-2 hover:underline"
                                   >
-                                    {formatUSD(precios[i])}
+                                    {formatUSD(precios[c.uid])}
                                   </button>
                                 ) : (
                                   <button
@@ -1346,7 +1502,7 @@ export default function CotizarPage() {
                               <td className="px-2 py-1.5 text-right align-top">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <span className="text-[11px] font-medium text-gray-700" title="Total del concepto = Cantidad × Precio unitario">
-                                    {formatUSD((precios[i] ?? 0) * (c.cantidad_estimada || 0))}
+                                    {formatUSD((precios[c.uid] ?? 0) * (c.cantidad_estimada || 0))}
                                   </span>
                                   <span
                                     className="rounded-full px-1.5 py-0.5 text-[9px] font-medium"
@@ -1382,7 +1538,7 @@ export default function CotizarPage() {
                           <span className="text-roca-gold">
                             {formatUSD(
                               conceptos.reduce(
-                                (acc, c, i) => acc + (precios[i] ?? 0) * (c.cantidad_estimada || 0),
+                                (acc, c) => acc + (precios[c.uid] ?? 0) * (c.cantidad_estimada || 0),
                                 0
                               )
                             )}
@@ -1414,7 +1570,7 @@ export default function CotizarPage() {
             {/* RESUMEN ECONÓMICO — la cascada se aplica UNA VEZ al total (obs #6) */}
             {(() => {
               const subtotalDirecto = conceptos.reduce(
-                (acc, c, i) => acc + (precios[i] ?? 0) * (c.cantidad_estimada || 0),
+                (acc, c) => acc + (precios[c.uid] ?? 0) * (c.cantidad_estimada || 0),
                 0
               );
               if (subtotalDirecto <= 0) return null;
@@ -1682,12 +1838,17 @@ export default function CotizarPage() {
           estado={obra.project_state || "TX"}
           ciudad={obra.project_city.trim() || undefined}
           horario={obra.work_schedule || undefined}
-          insumosIniciales={tpus[tpuModal.idx]}
+          insumosIniciales={tpus[conceptos[tpuModal.idx].uid]}
           onCerrar={() => setTpuModal({ abierto: false, idx: -1 })}
           onGuardar={(insumos, costoDirecto) => {
-            const idx = tpuModal.idx;
-            setTpus((prev) => ({ ...prev, [idx]: insumos }));
-            setPrecios((prev) => ({ ...prev, [idx]: costoDirecto }));
+            const concepto = conceptos[tpuModal.idx];
+            if (concepto) {
+              const uid = concepto.uid;
+              setTpus((prev) => ({ ...prev, [uid]: insumos }));
+              setPrecios((prev) => ({ ...prev, [uid]: costoDirecto }));
+              // Persistir en la nube (Fase 1). No bloquea el cierre del modal.
+              void apuDB.guardarTPU(uid, concepto.unidad, insumos, pctCotizacion);
+            }
             setTpuModal({ abierto: false, idx: -1 });
           }}
         />
@@ -1734,11 +1895,15 @@ export default function CotizarPage() {
           partida={conceptos[cuantModal.idx].partida}
           areaObra={obra.work_area_sf.trim() ? Number(obra.work_area_sf) : undefined}
           tipoInmueble={obra.property_type || undefined}
-          generadorInicial={generadores[cuantModal.idx]}
+          generadorInicial={generadores[conceptos[cuantModal.idx].uid]}
           onCerrar={() => setCuantModal({ abierto: false, idx: -1 })}
           onGuardar={(genData, cantidadTotal) => {
             const idx = cuantModal.idx;
-            setGeneradores((prev) => ({ ...prev, [idx]: genData }));
+            const uid = conceptos[idx]?.uid;
+            if (uid) {
+              setGeneradores((prev) => ({ ...prev, [uid]: genData }));
+              void apuDB.guardarGenerador(uid, genData);
+            }
             editarConcepto(idx, "cantidad_estimada", cantidadTotal);
             setCuantModal({ abierto: false, idx: -1 });
           }}

@@ -6,11 +6,21 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { generarCuantificacion } from "@/lib/agentes/cuantificador";
+import {
+  autenticar,
+  cuerpoDemasiadoGrande,
+  registrarUso,
+} from "@/lib/api-auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const grande = cuerpoDemasiadoGrande(req);
+  if (grande) return grande;
+  const ctx = await autenticar(req, "cuantificador");
+  if (ctx instanceof NextResponse) return ctx;
+
   try {
     const body = await req.json().catch(() => null);
 
@@ -34,10 +44,21 @@ export async function POST(req: NextRequest) {
       tipo_inmueble:
         typeof body?.tipo_inmueble === "string" ? body.tipo_inmueble : undefined,
     });
+
+    await registrarUso(ctx, {
+      modelo: result.meta?.modelo,
+      input_tokens: result.meta?.input_tokens,
+      output_tokens: result.meta?.output_tokens,
+      costo_usd: result.meta?.costo_usd,
+      quote_id: typeof body?.quote_id === "string" ? body.quote_id : null,
+      meta: { unidad },
+    });
+
     return NextResponse.json(result);
   } catch (err) {
     console.error("Error en /api/cuantificar:", err);
     const msg = err instanceof Error ? err.message : "Error desconocido";
+    await registrarUso(ctx, { ok: false, error_msg: msg });
     return NextResponse.json(
       { error: `No se pudo calcular la cantidad: ${msg}` },
       { status: 500 }

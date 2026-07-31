@@ -15,6 +15,7 @@
 // ============================================================================
 
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { postIA } from "@/lib/api-client";
 import { calcularCostoDirecto } from "@/lib/apu/calcular";
 import type { CategoriaInsumo, FuentePrecio, InsumoAPU } from "@/lib/apu/tipos";
 
@@ -104,13 +105,10 @@ export default function TarjetaPrecioUnitario({
     setGenerando(true);
     setError(null);
     try {
-      const res = await fetch("/api/preciar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ descripcion, unidad, partida, estado, ciudad, horario, modo: "avanzado" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al generar.");
+      const data = await postIA<{ insumos?: InsumoAPU[]; notas?: string }>(
+        "/api/preciar",
+        { descripcion, unidad, partida, estado, ciudad, horario, modo: "avanzado" }
+      );
       setInsumos(data.insumos ?? []);
       setNotas(data.notas ?? "");
     } catch (err) {
@@ -676,19 +674,16 @@ function CalculadoraPrecioInsumo({
     setGenerando(true);
     setError(null);
     try {
-      const res = await fetch("/api/precio-insumo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          descripcion: insumo.descripcion,
-          unidad: insumo.unidad,
-          categoria: insumo.categoria,
-          estado,
-          ciudad,
-        }),
+      const data = await postIA<{
+        fuentes?: Array<{ fuente: string; precio: number; nota?: string }>;
+        notas?: string;
+      }>("/api/precio-insumo", {
+        descripcion: insumo.descripcion,
+        unidad: insumo.unidad,
+        categoria: insumo.categoria,
+        estado,
+        ciudad,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Error al estimar.");
       const sugeridas: FuentePrecio[] = (data.fuentes ?? []).map(
         (f: { fuente: string; precio: number; nota?: string }) => ({
           fuente: f.fuente,

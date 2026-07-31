@@ -13,6 +13,7 @@
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { postIA } from "@/lib/api-client";
 import {
   type GenColumna,
   type GenFila,
@@ -165,19 +166,22 @@ export default function TarjetaCuantificacion({
     setGenerando(true);
     setError(null);
     try {
-      const res = await fetch("/api/cuantificar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          descripcion,
-          unidad,
-          partida,
-          area_ft2: areaObra,
-          tipo_inmueble: tipoInmueble,
-        }),
+      const json = await postIA<{
+        filas?: Array<{
+          referencia?: string;
+          largo?: number;
+          ancho?: number;
+          alto?: number;
+          piezas?: number;
+        }>;
+        notas?: string;
+      }>("/api/cuantificar", {
+        descripcion,
+        unidad,
+        partida,
+        area_ft2: areaObra,
+        tipo_inmueble: tipoInmueble,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Error al calcular.");
       const cols = columnasPorDefecto();
       const filas: GenFila[] = (json.filas ?? []).map(
         (f: {
