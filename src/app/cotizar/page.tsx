@@ -279,6 +279,8 @@ export default function CotizarPage() {
   const [visorPlanoAbierto, setVisorPlanoAbierto] = useState(false);
   // Tabla de consulta de unidades de construcción (repositorio único)
   const [tablaUnidadesAbierta, setTablaUnidadesAbierta] = useState(false);
+  // Generación de PDF (Fase 3): qué salida se está generando, o null.
+  const [pdfGenerando, setPdfGenerando] = useState<"ejecutiva" | "interna" | null>(null);
   // Progreso del "Calcular TODOS los precios con IA"
   const [calcTodos, setCalcTodos] = useState<{
     hecho: number;
@@ -870,6 +872,52 @@ export default function CotizarPage() {
     setTimeout(() => setCalcTodos(null), 4000);
   }
 
+  // --- PDF de la cotización (Fase 3) --------------------------------------
+  // "ejecutiva" = para el cliente (cascada prorrateada en el P.U.)
+  // "interna"   = para el contratista (CD + cascada desglosada + tarjetas APU)
+  async function descargarPDF(salida: "ejecutiva" | "interna") {
+    if (!autosave.quoteId) return;
+    setError(null);
+    setPdfGenerando(salida);
+    try {
+      // Asegurar que la cascada vigente esté guardada antes de renderizar
+      // (el PDF la lee de la base de datos).
+      await apuDB.guardarCascada(autosave.quoteId, pctCotizacion);
+
+      const { data: s } = await supabase.auth.getSession();
+      const token = s.session?.access_token;
+      if (!token) throw new Error("Inicia sesión de nuevo para generar el PDF.");
+
+      const res = await fetch("/api/pdf-cotizacion", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ quote_id: autosave.quoteId, salida }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.error || `El servidor respondió ${res.status}.`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${autosave.folio ?? "cotizacion"}${salida === "interna" ? "-interna" : ""}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo generar el PDF.");
+    } finally {
+      setPdfGenerando(null);
+    }
+  }
+
   function agregarConcepto() {
     setConceptos((prev) => [
       ...prev,
@@ -1293,6 +1341,23 @@ export default function CotizarPage() {
                     {calcTodos
                       ? `🤖 Calculando ${calcTodos.hecho}/${calcTodos.total}…`
                       : "🤖 Calcular TODOS los precios con IA"}
+                  </button>
+                  {/* PDF de la cotización (Fase 3) — dos salidas */}
+                  <button
+                    onClick={() => descargarPDF("ejecutiva")}
+                    disabled={pdfGenerando !== null || conceptos.length === 0 || !autosave.quoteId}
+                    className="rounded-lg bg-[#1e3a5f] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-[#24466f] disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Genera el PDF profesional para tu CLIENTE (los indirectos y la utilidad van dentro del precio unitario, sin desglosar)"
+                  >
+                    {pdfGenerando === "ejecutiva" ? "📄 Generando…" : "📄 PDF para cliente"}
+                  </button>
+                  <button
+                    onClick={() => descargarPDF("interna")}
+                    disabled={pdfGenerando !== null || conceptos.length === 0 || !autosave.quoteId}
+                    className="rounded-lg border border-[#1e3a5f]/40 bg-white px-3 py-1.5 text-[11px] font-semibold text-[#1e3a5f] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Versión INTERNA: costo directo por concepto, cascada desglosada y tarjetas de precios unitarios con sus insumos. NO se entrega al cliente."
+                  >
+                    {pdfGenerando === "interna" ? "🔒 Generando…" : "🔒 PDF interno"}
                   </button>
                   <span className="text-xs text-gray-500">
                     {conceptos.length} {conceptos.length === 1 ? "concepto" : "conceptos"}
