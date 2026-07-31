@@ -1,0 +1,658 @@
+<title>Rocatrol IA — Modelo financiero</title>
+
+<style>
+  :root{
+    --paper:#EEF3F6; --surface:#FFFFFF; --surface-2:#F7FAFB;
+    --ink:#0E1922; --ink-2:#53687A; --ink-3:#7C90A0;
+    --rule:#C7D7E2; --rule-soft:#DFE9F0;
+    --accent:#0A5578; --accent-soft:#E2EEF5;
+    --good:#186B4C; --good-soft:#E0F0E8;
+    --bad:#9E2C1B; --bad-soft:#F8E4E0;
+    --mark:#D9A227;
+    --shadow:0 1px 2px rgba(14,25,34,.06), 0 8px 24px -12px rgba(14,25,34,.18);
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0B1218; --surface:#111C24; --surface-2:#16232C;
+      --ink:#E2ECF3; --ink-2:#93A8B7; --ink-3:#6D8394;
+      --rule:#25363F; --rule-soft:#1C2A33;
+      --accent:#5AA6CE; --accent-soft:#152B38;
+      --good:#4EBE90; --good-soft:#122E24;
+      --bad:#E08876; --bad-soft:#331914;
+      --mark:#E6BA55;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#EEF3F6; --surface:#FFFFFF; --surface-2:#F7FAFB;
+    --ink:#0E1922; --ink-2:#53687A; --ink-3:#7C90A0;
+    --rule:#C7D7E2; --rule-soft:#DFE9F0;
+    --accent:#0A5578; --accent-soft:#E2EEF5;
+    --good:#186B4C; --good-soft:#E0F0E8;
+    --bad:#9E2C1B; --bad-soft:#F8E4E0;
+    --mark:#D9A227;
+    --shadow:0 1px 2px rgba(14,25,34,.06), 0 8px 24px -12px rgba(14,25,34,.18);
+  }
+  :root[data-theme="dark"]{
+    --paper:#0B1218; --surface:#111C24; --surface-2:#16232C;
+    --ink:#E2ECF3; --ink-2:#93A8B7; --ink-3:#6D8394;
+    --rule:#25363F; --rule-soft:#1C2A33;
+    --accent:#5AA6CE; --accent-soft:#152B38;
+    --good:#4EBE90; --good-soft:#122E24;
+    --bad:#E08876; --bad-soft:#331914;
+    --mark:#E6BA55;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.7);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,32px) 80px}
+
+  /* ---------- encabezado ---------- */
+  .eyebrow{
+    font:600 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--accent); margin-bottom:14px;
+  }
+  h1{
+    font-size:clamp(30px,5vw,46px); line-height:1.05; letter-spacing:-.025em;
+    font-weight:800; margin:0 0 14px; text-wrap:balance;
+  }
+  .dek{font-size:clamp(16px,2vw,19px); color:var(--ink-2); max-width:62ch; margin:0}
+
+  .thesis{
+    margin:32px 0 0; padding:22px 24px; background:var(--surface);
+    border:1px solid var(--rule); border-left:4px solid var(--mark);
+    border-radius:3px; box-shadow:var(--shadow);
+  }
+  .thesis p{margin:0; font-size:17px; max-width:68ch}
+  .thesis p + p{margin-top:12px}
+  .thesis strong{font-weight:700}
+
+  h2{
+    font-size:13px; font-weight:700; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink-2); margin:0; padding-bottom:10px; border-bottom:1px solid var(--rule);
+    font-family:var(--mono);
+  }
+  section{margin-top:56px}
+  section > p{max-width:68ch; color:var(--ink-2)}
+  h3{font-size:19px; font-weight:700; letter-spacing:-.01em; margin:28px 0 8px; text-wrap:balance}
+
+  /* ---------- controles ---------- */
+  .panel{
+    margin-top:20px; background:var(--surface); border:1px solid var(--rule);
+    border-radius:4px; box-shadow:var(--shadow); overflow:hidden;
+  }
+  .controls{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(258px,1fr));
+    gap:0; border-bottom:1px solid var(--rule);
+  }
+  .ctl{padding:18px 20px; border-right:1px solid var(--rule-soft); border-bottom:1px solid var(--rule-soft)}
+  .ctl label{display:flex; justify-content:space-between; align-items:baseline; gap:10px; cursor:pointer}
+  .ctl .name{font-size:13px; font-weight:600; color:var(--ink-2)}
+  .ctl .val{font:700 17px/1 var(--mono); font-variant-numeric:tabular-nums; color:var(--ink)}
+  .ctl .hint{display:block; font-size:11.5px; color:var(--ink-3); margin-top:7px; line-height:1.45}
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; margin:12px 0 0;
+    background:transparent; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:3px; background:var(--rule); border-radius:2px}
+  input[type=range]::-moz-range-track{height:3px; background:var(--rule); border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:17px; height:17px; margin-top:-7px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--accent);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:15px; height:15px; border-radius:50%; background:var(--accent);
+    border:2px solid var(--surface); box-shadow:0 0 0 1px var(--accent);
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--mark); outline-offset:5px; border-radius:3px}
+
+  .switch{display:flex; align-items:center; gap:10px; margin-top:14px}
+  .switch input{width:18px; height:18px; accent-color:var(--accent); cursor:pointer}
+  .switch span{font-size:13px; color:var(--ink-2)}
+
+  /* ---------- resultados ---------- */
+  .out{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+  .kpi{padding:20px; border-right:1px solid var(--rule-soft); border-bottom:1px solid var(--rule-soft)}
+  .kpi .k{font:600 10.5px/1 var(--mono); letter-spacing:.11em; text-transform:uppercase; color:var(--ink-3)}
+  .kpi .v{
+    font:700 clamp(24px,3.4vw,32px)/1.05 var(--mono); font-variant-numeric:tabular-nums;
+    margin-top:11px; letter-spacing:-.02em;
+  }
+  .kpi .s{font-size:11.5px; color:var(--ink-3); margin-top:6px; line-height:1.4}
+  .v.good{color:var(--good)} .v.bad{color:var(--bad)}
+
+  .verdict{padding:20px 24px; display:flex; gap:14px; align-items:flex-start; font-size:15.5px}
+  .verdict.ok{background:var(--good-soft); color:var(--good)}
+  .verdict.no{background:var(--bad-soft); color:var(--bad)}
+  .verdict .badge{
+    flex:none; font:700 11px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+    padding:6px 9px; border-radius:2px; border:1px solid currentColor; margin-top:1px;
+  }
+  .verdict p{margin:0; max-width:64ch}
+
+  /* ---------- tablas ---------- */
+  .scroll{overflow-x:auto; margin-top:20px}
+  table{width:100%; border-collapse:collapse; font-size:14.5px; min-width:460px}
+  caption{
+    text-align:left; font:600 11px/1 var(--mono); letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink-3); padding-bottom:10px;
+  }
+  th{
+    text-align:left; font:600 11px/1.3 var(--mono); letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-3); padding:9px 12px; border-bottom:1px solid var(--rule); vertical-align:bottom;
+  }
+  td{padding:10px 12px; border-bottom:1px solid var(--rule-soft); vertical-align:top}
+  td.n, th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+  tr.total td{border-top:1.5px solid var(--ink); border-bottom:none; font-weight:700; padding-top:12px}
+  tbody tr:hover td{background:var(--surface-2)}
+  .free td{color:var(--good); font-weight:600}
+
+  /* ---------- gráfica ---------- */
+  .chart{margin-top:20px; background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:20px; box-shadow:var(--shadow)}
+  canvas{width:100%; height:250px; display:block}
+  .legend{display:flex; flex-wrap:wrap; gap:20px; margin-top:14px; font-size:12.5px; color:var(--ink-2)}
+  .legend i{display:inline-block; width:22px; height:3px; vertical-align:middle; margin-right:7px; border-radius:2px}
+
+  /* ---------- notas ---------- */
+  .cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:20px; margin-top:22px}
+  .card{background:var(--surface); border:1px solid var(--rule); border-radius:4px; padding:20px; box-shadow:var(--shadow)}
+  .card h4{margin:0 0 10px; font-size:16px; font-weight:700; letter-spacing:-.01em}
+  .card p{margin:0; font-size:14.5px; color:var(--ink-2)}
+  .card p + p{margin-top:10px}
+  .card .tag{
+    display:inline-block; font:600 10px/1 var(--mono); letter-spacing:.11em; text-transform:uppercase;
+    padding:4px 7px; border-radius:2px; margin-bottom:12px;
+  }
+  .tag.fix{background:var(--bad-soft); color:var(--bad)}
+  .tag.win{background:var(--good-soft); color:var(--good)}
+  .tag.info{background:var(--accent-soft); color:var(--accent)}
+
+  ul{padding-left:20px; max-width:68ch; color:var(--ink-2)}
+  li{margin:7px 0}
+  li strong{color:var(--ink)}
+  .src{font-size:12.5px; color:var(--ink-3); margin-top:14px; max-width:72ch}
+  .src a{color:var(--ink-3)}
+  footer{margin-top:64px; padding-top:22px; border-top:1px solid var(--rule); font-size:13px; color:var(--ink-3)}
+  b.num{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:700}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Rocatrol IA · Análisis financiero · 30 jul 2026</p>
+  <h1>¿A partir de qué punto este negocio gana dinero?</h1>
+  <p class="dek">Costos de IA medidos del código real. Retención con datos de 200 millones de suscripciones. Mueve los controles y mira qué pasa.</p>
+
+  <div class="thesis">
+    <p><strong>La conclusión corta:</strong> el costo de la inteligencia artificial <em>no</em> es tu problema — son 1.34 dólares por cotización y ya tiene tope. Tu problema es <strong>cuánto cuesta conseguir cada cliente</strong>.</p>
+    <p>Con anuncios pagados, este negocio <strong>no cierra</strong> a $99 al mes. Con tu canal de YouTube en español para contratistas hispanos, <strong>cierra con holgura</strong>. Esa es la decisión que define todo lo demás.</p>
+  </div>
+
+  <!-- ================= CALCULADORA ================= -->
+  <section>
+    <h2>La calculadora</h2>
+    <p>Todo lo de abajo se recalcula solo. Los valores con los que arranca son mi recomendación.</p>
+
+    <div class="panel">
+      <div class="controls">
+        <div class="ctl">
+          <label for="precio"><span class="name">Precio del plan</span><span class="val" id="v-precio">$99</span></label>
+          <input type="range" id="precio" min="19" max="299" step="10" value="99">
+          <span class="hint">Debajo de $50 la retención se desploma: los productos con IA baratos pierden 77% de su ingreso al año.</span>
+        </div>
+
+        <div class="ctl">
+          <label for="uso"><span class="name">Cotizaciones que hace al mes</span><span class="val" id="v-uso">14</span></label>
+          <input type="range" id="uso" min="1" max="40" step="1" value="14">
+          <span class="hint">Cada una te cuesta $1.34 en IA. Este es el único costo que crece con el uso.</span>
+        </div>
+
+        <div class="ctl">
+          <label for="conv"><span class="name">De cada 100 que prueban gratis, cuántos pagan</span><span class="val" id="v-conv">5</span></label>
+          <input type="range" id="conv" min="1" max="15" step="1" value="5">
+          <span class="hint">Referencia real: 3 a 5 es normal, 6 a 8 es excelente. No es 15.</span>
+        </div>
+
+        <div class="ctl">
+          <label for="gratis"><span class="name">Cotizaciones gratis por persona</span><span class="val" id="v-gratis">2</span></label>
+          <input type="range" id="gratis" min="0" max="6" step="1" value="2">
+          <span class="hint">Las pagas tú. Se multiplican por toda la gente que prueba y nunca compra.</span>
+        </div>
+
+        <div class="ctl">
+          <label for="mkt"><span class="name">Lo que te cuesta traer a UNA persona a probar</span><span class="val" id="v-mkt">$0</span></label>
+          <input type="range" id="mkt" min="0" max="30" step="1" value="0">
+          <span class="hint">$0 = orgánico (tu canal de YouTube). Anuncios en Meta o Google: entre $8 y $25.</span>
+        </div>
+
+        <div class="ctl">
+          <label for="meta"><span class="name">Cuánto quieres ganar al mes</span><span class="val" id="v-meta">$5,000</span></label>
+          <input type="range" id="meta" min="1000" max="30000" step="500" value="5000">
+          <span class="hint">Ganancia después de pagar la IA, los servidores y la comisión de la tarjeta.</span>
+          <div class="switch">
+            <input type="checkbox" id="anual">
+            <label for="anual"><span>Vender plan anual con descuento (baja la cancelación a un tercio)</span></label>
+          </div>
+        </div>
+      </div>
+
+      <div class="out">
+        <div class="kpi">
+          <div class="k">Te queda cada mes</div>
+          <div class="v" id="k-margen">$74</div>
+          <div class="s" id="k-margen-s">por cliente, ya descontado todo</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Cuánto dura un cliente</div>
+          <div class="v" id="k-vida">10.5</div>
+          <div class="s">meses pagando, en promedio</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Vale cada cliente</div>
+          <div class="v" id="k-ltv">$775</div>
+          <div class="s">ganancia total durante su vida</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Te cuesta conseguirlo</div>
+          <div class="v" id="k-cac">$54</div>
+          <div class="s" id="k-cac-s">IA regalada + publicidad</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Por cada $1 invertido</div>
+          <div class="v" id="k-ratio">14.4x</div>
+          <div class="s">recuperas esto. Mínimo sano: 3x</div>
+        </div>
+        <div class="kpi">
+          <div class="k">Clientes que necesitas</div>
+          <div class="v" id="k-clientes">68</div>
+          <div class="s" id="k-clientes-s">para tu meta mensual</div>
+        </div>
+      </div>
+
+      <div class="verdict ok" id="verdict">
+        <span class="badge" id="verdict-badge">Sano</span>
+        <p id="verdict-text">Recuperas lo invertido de sobra. Este es el escenario con adquisición orgánica.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= COSTO IA ================= -->
+  <section>
+    <h2>De dónde sale el $1.34</h2>
+    <p>Medido del código de tu aplicación, no estimado. Precios de Claude Sonnet: $3 por millón de palabras que lee, $15 por millón que escribe.</p>
+
+    <div class="scroll">
+      <table>
+        <caption>Una cotización típica de 40 conceptos</caption>
+        <thead>
+          <tr>
+            <th>Lo que hace el usuario</th>
+            <th>¿Llama a la IA?</th>
+            <th class="n">Veces</th>
+            <th class="n">Costo c/u</th>
+            <th class="n">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Generar el catálogo de conceptos</td><td>Sí — Intérprete</td><td class="n">1</td><td class="n">$0.070</td><td class="n">$0.07</td></tr>
+          <tr><td>Calcular el precio de cada concepto</td><td>Sí — Preciador</td><td class="n">40</td><td class="n">$0.023</td><td class="n">$0.92</td></tr>
+          <tr><td>Calcular cantidades con IA</td><td>Sí — Cuantificador</td><td class="n">10</td><td class="n">$0.015</td><td class="n">$0.15</td></tr>
+          <tr><td>Buscar precio de un material</td><td>Sí — Estimador</td><td class="n">15</td><td class="n">$0.013</td><td class="n">$0.20</td></tr>
+          <tr class="free"><td>Editar una cantidad, un precio o un texto</td><td>No</td><td class="n">∞</td><td class="n">$0.000</td><td class="n">$0.00</td></tr>
+          <tr class="free"><td>Borrar o agregar un concepto</td><td>No</td><td class="n">∞</td><td class="n">$0.000</td><td class="n">$0.00</td></tr>
+          <tr class="free"><td>Mover los porcentajes de la cascada</td><td>No</td><td class="n">∞</td><td class="n">$0.000</td><td class="n">$0.00</td></tr>
+          <tr class="free"><td>Medir sobre el plano y aplicar al catálogo</td><td>No</td><td class="n">∞</td><td class="n">$0.000</td><td class="n">$0.00</td></tr>
+          <tr class="total"><td colspan="4">Costo de una cotización completa</td><td class="n">$1.34</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <span class="tag win">Tu ventaja escondida</span>
+        <h4>La mayoría de lo que hace el usuario es gratis</h4>
+        <p>Tu aplicación tiene dos motores. El de cálculo (sumar, aplicar la cascada, evaluar fórmulas, convertir unidades) corre en el navegador del cliente y <strong>no te cuesta un centavo, para siempre</strong>.</p>
+        <p>Solo cuatro botones gastan dinero. Por eso sí puedes dejar que corrija cuanto quiera: corregir un precio suelto cuesta 2 centavos.</p>
+      </div>
+      <div class="card">
+        <span class="tag info">Dónde está el dinero</span>
+        <h4>Los 40 precios son el 70% del costo</h4>
+        <p>El catálogo es casi gratis. El gasto está en calcular precio por precio. Y lo caro es lo que la IA <em>escribe</em>, no lo que lee: la salida cuesta 5 veces más.</p>
+        <p>Por eso el ahorro no está en optimizar los textos que le mandas — está en <strong>no regenerar lo que ya está bien</strong>.</p>
+      </div>
+      <div class="card">
+        <span class="tag win">Ya está puesto</span>
+        <h4>El peor caso ya tiene freno</h4>
+        <p>Un usuario que regenere el catálogo 3 veces y recalcule los 40 precios 3 veces gasta <b class="num">$3.00</b>. Nada más.</p>
+        <p>Y el tope de <b class="num">$25</b> por empresa al día que instalamos hoy es tu techo absoluto por cliente, haga lo que haga.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RETENCIÓN ================= -->
+  <section>
+    <h2>Cuántos se quedan después de meter la tarjeta</h2>
+    <p>Datos de Stripe sobre 200 millones de suscripciones, ajustados a construcción. De cada 10 contratistas que meten tarjeta, <strong>unos 4 siguen pagando al año</strong> y 2 o 3 a los dos años. Eso es normal para este sector, no es un fracaso.</p>
+
+    <div class="chart">
+      <canvas id="curva" aria-label="Curva de cuántos clientes siguen pagando mes a mes"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>Escenario base</span>
+        <span><i style="background:var(--bad)"></i>Pesimista (invierno + quiebras)</span>
+        <span><i style="background:var(--good)"></i>Con plan anual y buen arranque</span>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <table>
+        <caption>De 100 clientes que metieron tarjeta, cuántos siguen pagando</caption>
+        <thead>
+          <tr><th>Momento</th><th class="n">Pesimista</th><th class="n">Base</th><th class="n">Optimista</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>A los 3 meses</td><td class="n">55</td><td class="n">68</td><td class="n">80</td></tr>
+          <tr><td>A los 6 meses</td><td class="n">38</td><td class="n">54</td><td class="n">70</td></tr>
+          <tr><td>Al año</td><td class="n">20</td><td class="n">39</td><td class="n">57</td></tr>
+          <tr><td>A los dos años</td><td class="n">12</td><td class="n">26</td><td class="n">43</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Los primeros 90 días son todo</h3>
+    <p>La probabilidad de que te cancelen en el primer trimestre es <b class="num">12%</b> cada mes. Al pasar el mes 3 baja a <b class="num">7.4%</b>, y después del año a <b class="num">3.2%</b>. Si el contratista llega a su tercer mes, se queda mucho tiempo. Todo el esfuerzo va ahí: que haga su primera cotización buena en los primeros 7 días.</p>
+  </section>
+
+  <!-- ================= CORRECCIONES ================= -->
+  <section>
+    <h2>Dos cosas que te dije mal y hay que corregir</h2>
+
+    <div class="cols">
+      <div class="card">
+        <span class="tag fix">Corrección 1</span>
+        <h4>Lo tuyo no es una prueba gratis: es freemium</h4>
+        <p>Te dije que de cada 100 que prueban, pagarían entre 12 y 18. Ese número aplica cuando el cliente <strong>mete la tarjeta desde el principio</strong> y se le cobra solo al día 14.</p>
+        <p>Tu modelo —2 o 3 cotizaciones gratis y la tarjeta después— es otra cosa. Ahí el número real es <strong>de 3 a 5 de cada 100</strong>. Bueno es 5; excelente es 8.</p>
+        <p>Significa que necesitas <strong>20 personas probando por cada cliente que paga</strong>, no 6. Es la diferencia entre un plan que funciona y uno que no.</p>
+      </div>
+      <div class="card">
+        <span class="tag fix">Corrección 2</span>
+        <h4>No lances el plan de $49 como el principal</h4>
+        <p>Un estudio de 3,500 empresas encontró que los productos con IA <strong>por debajo de $50 al mes pierden el 77% de su ingreso al año</strong>. Entre $50 y $249 la pérdida baja a 55%.</p>
+        <p>Ser barato <em>y</em> ser "con IA" es hoy la peor combinación de retención que existe. La gente prueba, se aburre y cancela.</p>
+        <p>Deja el de $99 como el plan principal y visible. Si acaso, ten uno más barato pero escondido, para retener a quien iba a cancelar.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= RECOMENDACION ================= -->
+  <section>
+    <h2>Qué haría yo</h2>
+
+    <div class="cols">
+      <div class="card">
+        <span class="tag win">Lo más importante</span>
+        <h4>Tu canal de YouTube es el negocio</h4>
+        <p>Con anuncios pagados el costo de traer un cliente ronda los <b class="num">$350</b> y tu techo a $99 al mes es <b class="num">$290</b>. No cierra.</p>
+        <p>Pero ya tienes un canal en español dirigido justo a contratistas hispanos en Estados Unidos. Ese es el mismo público, exacto. Si los clientes llegan de ahí, tu costo de adquisición es casi solo la IA que regalas — unos <b class="num">$54</b>.</p>
+        <p>Deja de verlo como dos proyectos. El canal <strong>es</strong> el canal de ventas de Rocatrol IA.</p>
+      </div>
+      <div class="card">
+        <span class="tag info">Ajuste al plan gratis</span>
+        <h4>Regala el catálogo y el PDF, no los 40 precios</h4>
+        <p>De los $1.34, el catálogo cuesta 7 centavos y los precios 92. Si en la versión gratis dejas generar el catálogo completo y calcular <strong>5 precios</strong>, con el PDF con marca de agua, ves lo mismo que quieres enseñar por <b class="num">$0.30</b> en vez de $1.34.</p>
+        <p>Eso baja el costo de conseguir un cliente de $54 a <b class="num">$12</b>. Y el PDF bonito sigue siendo lo que vende.</p>
+      </div>
+      <div class="card">
+        <span class="tag info">Cobro</span>
+        <h4>No midas: incluye y vigila</h4>
+        <p>Poner un contador de "te quedan 3 recálculos" cuesta más en confianza y en trabajo del que ahorra en dólares. Con el peor caso en $3 y tope de $25 al día, no hay nada que proteger.</p>
+        <p>Incluye todo dentro de la cotización, cuenta solo cotizaciones, y en 90 días revisa los números reales que ya está guardando la aplicación.</p>
+      </div>
+      <div class="card">
+        <span class="tag win">Retención</span>
+        <h4>Vende anual desde el primer día</h4>
+        <p>Un cliente anual cancela <strong>un tercio</strong> de lo que cancela uno mensual, y te ahorra 11 de las 12 oportunidades de que le rebote la tarjeta.</p>
+        <p>Jobber y Housecall Pro descuentan entre 24% y 41% por pagar el año. Así compran el invierno por adelantado — que es exactamente tu riesgo, porque el contratista cotiza en rachas.</p>
+      </div>
+    </div>
+
+    <h3>El riesgo que no se arregla con precio</h3>
+    <p>Si tu producto solo se abre cuando hay que cotizar, eres una herramienta que se usa a ratos, y ese perfil cancela más. La defensa no es un descuento: es que la aplicación siga sirviendo <strong>después</strong> de mandar la cotización — seguimiento del prospecto, órdenes de cambio, estimaciones de avance. Está en tu plan como fases posteriores; esta es la razón de negocio para hacerlas.</p>
+  </section>
+
+  <!-- ================= HONESTIDAD ================= -->
+  <section>
+    <h2>Qué tan confiables son estos números</h2>
+    <ul>
+      <li><strong>Los costos de IA: sólidos.</strong> Salen de medir los textos y los límites reales de tu código. Pueden variar ±20% según el tamaño de la obra.</li>
+      <li><strong>La retención: sólida pero prestada.</strong> Son datos reales de Stripe y ChartMogul ajustados a construcción, no de tu producto. Nadie publica churn de software de cotización, así que ese dato exacto no existe.</li>
+      <li><strong>Cuántas cotizaciones hace un contratista al mes: no lo sabemos.</strong> Es el número que más mueve tu costo y hoy es una suposición. Lo vamos a saber de verdad.</li>
+      <li><strong>En 90 días esto deja de ser estimación.</strong> La bitácora que instalamos hoy guarda el costo real en dólares de cada llamada, por cliente. Con 10 usuarios reales durante un mes, este modelo se rehace con datos tuyos.</li>
+    </ul>
+    <p class="src">
+      Fuentes de retención: Churnkey sobre datos de Stripe (200M de suscripciones) · ChartMogul, informe de retención sobre 3,500 empresas · SaaS Capital sobre venta a pequeñas empresas · Lenny's Newsletter y OpenView sobre conversión de gratis a pago · Oficina de Estadísticas Laborales de EE.UU. sobre supervivencia de negocios de construcción · Reporte trimestral de ServiceTitan sobre estacionalidad.
+    </p>
+  </section>
+
+  <footer>
+    Modelo construido el 30 de julio de 2026 para Roca Global Builders. Los costos de IA se midieron del código de Rocatrol IA; la retención proviene de fuentes públicas citadas arriba. Documento de trabajo, no una proyección garantizada.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // --- Constantes medidas del código ---------------------------------------
+  var COSTO_COTIZACION = 1.34;   // 40 conceptos: catálogo + 40 precios + cuantificación + insumos
+  var INFRA_MES = 2.00;          // Vercel + Supabase prorrateados por cliente
+  var STRIPE_PCT = 0.029, STRIPE_FIJO = 0.30;
+  var HORIZONTE = 24;            // meses que consideramos vida del cliente
+
+  // Riesgo de cancelación por mes de antigüedad (Stripe / Churnkey)
+  function riesgo(mes, mult){
+    var h;
+    if (mes < 3)       h = 0.120;
+    else if (mes < 6)  h = 0.074;
+    else if (mes < 9)  h = 0.060;
+    else if (mes < 12) h = 0.049;
+    else               h = 0.032;
+    return Math.max(0.004, Math.min(0.60, h * mult));
+  }
+
+  function curva(mult, meses){
+    var s = [1], m;
+    for (m = 0; m < meses; m++) s.push(s[m] * (1 - riesgo(m, mult)));
+    return s;
+  }
+
+  function mesesPromedio(mult){
+    var s = curva(mult, HORIZONTE), t = 0, i;
+    for (i = 1; i <= HORIZONTE; i++) t += s[i];
+    return t;
+  }
+
+  // --- Formato -------------------------------------------------------------
+  var usd0 = new Intl.NumberFormat('es-MX', {style:'currency', currency:'USD', maximumFractionDigits:0});
+  var usd2 = new Intl.NumberFormat('es-MX', {style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2});
+
+  var el = function(id){ return document.getElementById(id); };
+  var campos = ['precio','uso','conv','gratis','mkt','meta'];
+
+  function calcular(){
+    var precio  = +el('precio').value;
+    var uso     = +el('uso').value;
+    var conv    = +el('conv').value / 100;
+    var gratis  = +el('gratis').value;
+    var mkt     = +el('mkt').value;
+    var meta    = +el('meta').value;
+    var anual   = el('anual').checked;
+
+    // Etiquetas de los controles
+    el('v-precio').textContent = usd0.format(precio);
+    el('v-uso').textContent    = uso;
+    el('v-conv').textContent   = (conv * 100).toFixed(0);
+    el('v-gratis').textContent = gratis;
+    el('v-mkt').textContent    = mkt === 0 ? '$0' : usd0.format(mkt);
+    el('v-meta').textContent   = usd0.format(meta);
+
+    // Lo que queda cada mes de un cliente que paga
+    var costoIA     = uso * COSTO_COTIZACION;
+    var comision    = precio * STRIPE_PCT + STRIPE_FIJO;
+    var margen      = precio - costoIA - comision - INFRA_MES;
+    var margenPct   = precio > 0 ? (margen / precio) * 100 : 0;
+
+    // Vida del cliente. El plan anual reduce la cancelación a un tercio.
+    var mult  = anual ? 0.34 : 1;
+    var meses = mesesPromedio(mult);
+    var ltv   = margen * meses;
+
+    // Costo de conseguir un cliente:
+    //   por cada cliente que paga, hay 1/conv personas que probaron gratis
+    var personasPorCliente = 1 / conv;
+    var costoRegalado = personasPorCliente * gratis * COSTO_COTIZACION;
+    var costoPublicidad = personasPorCliente * mkt;
+    var cac = costoRegalado + costoPublicidad;
+
+    var ratio = cac > 0 ? ltv / cac : Infinity;
+    var clientes = margen > 0 ? Math.ceil(meta / margen) : Infinity;
+
+    // --- Pintar resultados -------------------------------------------------
+    var elMargen = el('k-margen');
+    elMargen.textContent = usd2.format(margen);
+    elMargen.className = 'v ' + (margen > 0 ? 'good' : 'bad');
+    el('k-margen-s').textContent = margen > 0
+      ? 'te queda el ' + margenPct.toFixed(0) + '% de lo que cobras'
+      : 'pierdes dinero con cada cliente';
+
+    el('k-vida').textContent = meses.toFixed(1);
+    el('k-ltv').textContent  = usd0.format(Math.max(ltv, 0));
+
+    el('k-cac').textContent = usd0.format(cac);
+    el('k-cac-s').textContent = personasPorCliente.toFixed(0) + ' personas prueban por cada 1 que paga';
+
+    var elRatio = el('k-ratio');
+    elRatio.textContent = isFinite(ratio) ? ratio.toFixed(1) + 'x' : '∞';
+    elRatio.className = 'v ' + (ratio >= 3 ? 'good' : 'bad');
+
+    el('k-clientes').textContent = isFinite(clientes) ? clientes.toLocaleString('es-MX') : '—';
+    el('k-clientes-s').textContent = isFinite(clientes)
+      ? 'para ganar ' + usd0.format(meta) + ' al mes'
+      : 'imposible: pierdes dinero por cliente';
+
+    // --- Veredicto ---------------------------------------------------------
+    var v = el('verdict'), badge = el('verdict-badge'), texto = el('verdict-text');
+    var mesesRecupera = margen > 0 ? cac / margen : Infinity;
+    var ok = margen > 0 && ratio >= 3;
+
+    v.className = 'verdict ' + (ok ? 'ok' : 'no');
+    badge.textContent = margen <= 0 ? 'Pierdes' : (ratio >= 3 ? 'Sano' : 'No cierra');
+
+    if (margen <= 0) {
+      texto.textContent = 'A ' + usd0.format(precio) + ' al mes con ' + uso +
+        ' cotizaciones, la IA y las comisiones se comen todo. Sube el precio o baja las cotizaciones incluidas.';
+    } else if (ratio >= 3) {
+      texto.textContent = 'Recuperas lo invertido en ' + mesesRecupera.toFixed(1) +
+        ' meses y ganas ' + ratio.toFixed(1) + ' veces lo que gastas en conseguir al cliente. Necesitas ' +
+        clientes.toLocaleString('es-MX') + ' clientes para tu meta.';
+    } else {
+      texto.textContent = 'Cada cliente te cuesta ' + usd0.format(cac) + ' y solo te deja ' +
+        usd0.format(ltv) + ' en toda su vida. Tardas ' + mesesRecupera.toFixed(1) +
+        ' meses en recuperarlo, y el mínimo sano es ganar 3 veces lo invertido. Baja el costo de adquisición o sube el precio.';
+    }
+
+    dibujar(mult);
+  }
+
+  // --- Gráfica de retención -------------------------------------------------
+  var cv = el('curva'), ctx = cv.getContext('2d');
+
+  function color(nombre){
+    return getComputedStyle(document.documentElement).getPropertyValue(nombre).trim();
+  }
+
+  function dibujar(multUsuario){
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    var MESES = 24;
+    var padL = 40, padR = 14, padT = 14, padB = 30;
+    var gw = w - padL - padR, gh = h - padT - padB;
+    var x = function(m){ return padL + (m / MESES) * gw; };
+    var y = function(v){ return padT + (1 - v) * gh; };
+
+    var rule = color('--rule'), ink3 = color('--ink-3');
+
+    // Rejilla horizontal
+    ctx.strokeStyle = rule; ctx.lineWidth = 1;
+    ctx.font = '11px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = ink3; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    [0, 0.25, 0.5, 0.75, 1].forEach(function(v){
+      ctx.beginPath();
+      ctx.moveTo(padL, Math.round(y(v)) + 0.5);
+      ctx.lineTo(w - padR, Math.round(y(v)) + 0.5);
+      ctx.stroke();
+      ctx.fillText((v * 100).toFixed(0) + '%', padL - 8, y(v));
+    });
+
+    // Marcas de meses
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    [0, 3, 6, 12, 18, 24].forEach(function(m){
+      ctx.fillText(m === 0 ? 'inicio' : 'mes ' + m, x(m), h - padB + 8);
+    });
+
+    function trazo(mult, col, grosor, relleno){
+      var s = curva(mult, MESES), m;
+      if (relleno) {
+        ctx.beginPath();
+        ctx.moveTo(x(0), y(s[0]));
+        for (m = 1; m <= MESES; m++) ctx.lineTo(x(m), y(s[m]));
+        ctx.lineTo(x(MESES), y(0)); ctx.lineTo(x(0), y(0)); ctx.closePath();
+        ctx.globalAlpha = 0.10; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+      }
+      ctx.beginPath();
+      ctx.moveTo(x(0), y(s[0]));
+      for (m = 1; m <= MESES; m++) ctx.lineTo(x(m), y(s[m]));
+      ctx.strokeStyle = col; ctx.lineWidth = grosor;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.stroke();
+      return s;
+    }
+
+    trazo(1.5, color('--bad'), 1.5, false);                 // pesimista
+    trazo(0.55, color('--good'), 1.5, false);               // optimista
+    var base = trazo(multUsuario, color('--accent'), 2.5, true); // el escenario elegido
+
+    // Punto y etiqueta al año
+    var acc = color('--accent'), sup = color('--surface');
+    ctx.beginPath(); ctx.arc(x(12), y(base[12]), 4.5, 0, Math.PI * 2);
+    ctx.fillStyle = acc; ctx.fill();
+    ctx.strokeStyle = sup; ctx.lineWidth = 2; ctx.stroke();
+
+    ctx.fillStyle = acc; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.font = '700 12px ui-monospace, Menlo, monospace';
+    ctx.fillText(Math.round(base[12] * 100) + '% al año', x(12) + 9, y(base[12]) - 5);
+  }
+
+  campos.forEach(function(id){ el(id).addEventListener('input', calcular); });
+  el('anual').addEventListener('change', calcular);
+  window.addEventListener('resize', calcular);
+  if (window.matchMedia) {
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) mq.addEventListener('change', calcular);
+  }
+  new MutationObserver(calcular).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+
+  calcular();
+})();
+</script>

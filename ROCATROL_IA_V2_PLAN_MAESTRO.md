@@ -341,8 +341,33 @@ Cada fase entrega valor por sí sola y es reversible con feature flag por empres
 
 ### 7.1 Modelo de cobro
 
+> 📊 **Modelo financiero completo en dos calculadoras interactivas** (Julio puede mover los números):
+> · [Modelo financiero: costo de IA, retención y rentabilidad](https://claude.ai/code/artifact/9e7b7e86-f0d5-4395-a82d-246e37a93e4f)
+> · [Costo-beneficio y proyección a 3 años](https://claude.ai/code/artifact/801e0d19-16da-41d0-afbb-e264d1f38015)
+
 **Regla central: no vender "tokens", vender "cotizaciones".** Un contratista no sabe qué es un token
 y no quiere aprenderlo. La misma mecánica en su idioma: *"25 cotizaciones al mes"*.
+
+#### ⚠️ Dos correcciones al plan original (30-jul-2026)
+
+**1. Esto es freemium, no un free trial — y los números son otros.**
+
+| Modelo | Cuándo entra la tarjeta | De 100, cuántos pagan |
+|---|---|---|
+| Free trial opt-out | Al inicio, se cobra al día 14 | 31–50 de los que meten tarjeta |
+| **Freemium con tope** (el nuestro) | Después de agotar lo gratis | **3–5** · bueno 5 · excelente 8 |
+
+Hacen falta **~20 personas probando por cada cliente que paga**, no 6.
+
+**2. El plan de $49 no puede ser el principal.** ChartMogul sobre 3,500 empresas: los productos con IA
+**bajo $50/mes retienen solo 23% del ingreso al año**; entre $50–249 suben a 45%. Barato + "con IA"
+es hoy la peor combinación de retención que existe. Anclar en **$99**; dejar el barato escondido
+como oferta de retención para quien iba a cancelar.
+
+**3. Abaratar lo que se regala.** De los $1.34 de una cotización, el catálogo cuesta $0.07 y los 40
+precios $0.92. La versión gratis debe dar **catálogo completo + 5 precios + PDF con marca de agua
+= $0.30**. Enseña exactamente lo mismo (el PDF es el argumento de venta) y baja el costo de
+adquisición de $54 a **$12** por cliente.
 
 | Plan | Precio | Cotizaciones | Costo IA | Margen bruto |
 |---|---|---|---|---|
@@ -369,6 +394,94 @@ si el extra sale más caro se siente como castigo y la gente deja de usar el pro
 por usuario, y los límites (US$25/empresa/día) son el freno de emergencia. Falta contar
 cotizaciones/mes, mostrar saldo y bloquear al agotarse ≈ **media semana**, y va **después del PDF**
 — primero hay que tener algo que la gente quiera pagar.
+
+### 7.2 Costos de IA — MEDIDOS del código (no estimados)
+
+Claude Sonnet a $3/MTok entrada y $15/MTok salida:
+
+| Acción | Costo | ¿Llama a la IA? |
+|---|---|---|
+| Generar catálogo (Intérprete) | $0.070 | Sí |
+| Precio de UN concepto (Preciador) | $0.023 | Sí |
+| Cantidad con IA (Cuantificador) | $0.015 | Sí |
+| Precio de un insumo (Estimador) | $0.013 | Sí |
+| Editar cantidad, precio, texto · borrar/agregar concepto · mover la cascada · medir sobre el plano | **$0.000** | **No** |
+| **Cotización completa de 40 conceptos** | **$1.34** | |
+| Peor caso (regenerar todo 3 veces) | $3.00 | |
+
+**Tres hallazgos que definen el modelo:**
+1. **Solo 4 botones gastan dinero.** Todo lo demás corre en el navegador. Por eso sí se puede
+   incluir corregir sin límite: corregir un precio suelto cuesta 2 centavos.
+2. **Los 40 precios son el 70% del costo**; el catálogo es casi gratis.
+3. **Lo caro es lo que la IA escribe** (5× más que lo que lee) → el ahorro está en no regenerar,
+   no en optimizar los prompts.
+
+### 7.3 Economía del negocio
+
+**Unidad (a $99/mes, 14 cotizaciones/mes):** costo variable $22.43 (IA $18.76 + Stripe $3.17 +
+storage $0.50) → **margen de contribución $76.57 = 77%**.
+
+**Costos fijos por etapa:** $146/mes (0-50 clientes) → $401 (50-200) → $2,351 (200-1,000, ya con
+medio tiempo de soporte en español). **Punto de equilibrio: 2 clientes.**
+
+**Inversión de arranque: $1,950 en efectivo** (DBA $100 + legal $400 + seguro E&O $700 + Claude Max
+durante el desarrollo $600 + pruebas de API $150). La LLC, el dominio y el logo ya existen.
+La inversión real son **6 semanas de tiempo de Julio ≈ $7,200 de costo de oportunidad**.
+
+**Proyección (escenario realista: 2→4→6→8 altas/mes año 1, 12 año 2, 20 año 3):**
+
+| | Clientes al cierre | Promedio del año | Ingreso | Utilidad | Acumulado |
+|---|---|---|---|---|---|
+| Año 1 | 46 | 20.5 | $24,369 | **$17,051** | $15,101 |
+| Año 2 | 131 | 97 | $114,860 | **$84,041** | $99,142 |
+| Año 3 | 264 | 209 | $248,292 | **$175,538** | **$274,680** |
+
+Recupera la inversión en el **mes 3**.
+
+⚠️ **Aclaración obligatoria al presentar estas cifras:** la tabla de utilidad por número de
+suscriptores es una **foto** ("si tuvieras 100 clientes todo el año"); la proyección es una
+**película** ("empiezas en 0 y terminas en 46"). Ambas cuadran — el promedio de clientes del año
+metido en la tabla-foto da la misma utilidad. Analogía que funcionó con Julio: *cuánto produce una
+cuadrilla de 10 hombres en un año* vs *cuánto produjeron si empezaste con 1 albañil en enero y
+llegaste a 10 en diciembre*.
+
+### 7.4 El cuello de botella real: audiencia, no dinero
+
+**Techo de adquisición: $290 por cliente a $99/mes.** Con anuncios pagados el costo real ronda
+**$350 → el negocio NO cierra con publicidad pagada.** Cierra con adquisición orgánica.
+
+| Clientes nuevos/mes | Pruebas gratis necesarias | Vistas de video/mes |
+|---|---|---|
+| 2 | 40 | 2,667 |
+| 5 | 100 | 6,667 |
+| 10 | 200 | 13,333 |
+| 20 | 400 | 26,667 |
+
+(5% de los que prueban gratis pagan; 1.5% de los que ven un video se registran.)
+
+**Decisión estratégica:** el canal de YouTube **"Contractor con IA" apunta al mismo público exacto
+y es el departamento de ventas de Rocatrol AI**, no un proyecto aparte. Cada video trabaja para
+ambos. Para los primeros 20 clientes no hace falta audiencia: se venden a mano (contratistas
+conocidos, grupos de Facebook de constructores hispanos, proveedores de material).
+
+### 7.5 ⭐ LA PRUEBA DE LOS 6 MESES (acordada con Julio)
+
+No decidir "sí o no" hoy. Acotar el riesgo con un compromiso escrito:
+
+> Terminar el producto (~6 semanas), conseguir clientes vendiendo a mano, y evaluar al mes 6.
+
+| Al mes 6 | Significa | Acción |
+|---|---|---|
+| **≥20 clientes** | Gente desconocida paga por esto | Invertir en serio |
+| 10-19 | Hay señal, algo estorba (precio/mensaje/producto) | Corregir, 3 meses más |
+| **<10** | El problema es la demanda, no el producto | **Parar** |
+
+20 clientes = $1,531/mes. No cambia la vida de Julio, pero es la única prueba que importa.
+
+**Veredicto honesto dado a Julio.** A favor: márgenes 77% (construcción trabaja con 15-25%),
+equilibrio en 2 clientes, riesgo de capital de $1,950, crece sin contratar. En contra: el año 1
+no paga su tiempo; el riesgo no es perder dinero sino perder 3 años; un software no se termina
+nunca; y todo cuelga de un supuesto que nadie puede calcular antes de intentarlo.
 
 ---
 

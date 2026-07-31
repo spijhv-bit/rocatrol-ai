@@ -91,6 +91,42 @@ Infraestructura ya lista: `ai_logs` registra costo real por empresa. Falta conta
 
 ---
 
+---
+
+## 📊 MODELO FINANCIERO (segunda mitad de la sesión)
+
+Julio preguntó cómo se controlan los costos de tokens y si el negocio es rentable. Se midió el
+consumo real del código y se investigó la retención con un agente. **Detalle completo en la §7 del
+PLAN MAESTRO y en la memoria `project_rocatrol_ai_modelo_financiero.md`.**
+
+**Dos calculadoras interactivas publicadas** (Julio puede mover los números él mismo):
+- Modelo financiero: https://claude.ai/code/artifact/9e7b7e86-f0d5-4395-a82d-246e37a93e4f
+- Costo-beneficio y proyección a 3 años: https://claude.ai/code/artifact/801e0d19-16da-41d0-afbb-e264d1f38015
+
+**Lo esencial:**
+- **Costo de IA medido: $1.34 por cotización de 40 conceptos.** Solo 4 botones gastan dinero;
+  editar, borrar, mover porcentajes y medir sobre el plano cuestan **$0**. Peor caso $3.00, con
+  tope de $25/empresa/día ya en producción.
+- **Margen 77% · equilibrio en 2 clientes · arranque $1,950** (la inversión real son 6 semanas de
+  tiempo de Julio ≈ $7,200 de costo de oportunidad).
+- **Proyección realista:** año 1 $17,051 · año 2 $84,041 · año 3 $175,538 (264 clientes).
+  Recupera la inversión en el mes 3.
+- **Dos correcciones a lo que se había dicho:** (1) "2-3 gratis y luego tarjeta" es **freemium**,
+  no trial → convierten 3-5 de cada 100, no 12-18; (2) **no lanzar el plan de $49 como principal**
+  (IA bajo $50/mes retiene solo 23% del ingreso al año).
+- **El cuello de botella es la audiencia, no el dinero.** Con anuncios pagados el CAC ronda $350
+  contra un techo de $290 → no cierra. El canal de YouTube "Contractor con IA" es el departamento
+  de ventas de Rocatrol AI, no un proyecto aparte.
+- ⭐ **LA PRUEBA DE LOS 6 MESES acordada:** ≥20 clientes → invertir en serio · 10-19 → corregir y
+  3 meses más · <10 → **parar**.
+
+⚠️ **Al volver a presentar estas cifras:** distinguir siempre la tabla-**foto** (utilidad si
+tuvieras N clientes todo el año) de la **película** (proyección desde cero). Julio se confundió con
+esto y la analogía que funcionó fue la de la cuadrilla: *cuánto produce una cuadrilla de 10 en un
+año* vs *cuánto produjeron si empezaste con 1 albañil en enero y llegaste a 10 en diciembre*.
+
+---
+
 ## Deuda técnica pendiente (de la auditoría, sin atender aún)
 
 - **Cero tests.** `apu/calcular.ts` (260 líneas) decide el precio que se le cobra al cliente y no tiene una sola aserción. Igual `cuantificacion/formula.ts`. **Hacer esto antes de la Fase 2** (son las pruebas de oro contra las que se valida el motor).
