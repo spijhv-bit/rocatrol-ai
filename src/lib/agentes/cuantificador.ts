@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { claude, MODELS } from "@/lib/claude";
+import { sanitizarSalidaAgente } from "@/lib/contratos/guardian";
 
 export interface CuantificarInput {
   descripcion: string;
@@ -150,7 +151,11 @@ Devuelve los renglones con sus dimensiones + la justificación de las cantidades
     throw new Error("El Agente Cuantificador no devolvió una cuantificación válida.");
   }
 
-  const data = toolUse.input as Partial<ToolCuantificarInput>;
+  // Frontera IA/motor: el Cuantificador propone dimensiones, nunca importes.
+  const { data } = sanitizarSalidaAgente(
+    toolUse.input as Partial<ToolCuantificarInput>,
+    "cuantificador"
+  );
   const inTok = response.usage.input_tokens;
   const outTok = response.usage.output_tokens;
   const costo = (inTok / 1_000_000) * 3 + (outTok / 1_000_000) * 15;

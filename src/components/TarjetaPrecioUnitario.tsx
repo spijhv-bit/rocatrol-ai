@@ -57,6 +57,7 @@ function insumoVacio(categoria: CategoriaInsumo): InsumoAPU {
     unidad: UNIDAD_DEFAULT[categoria],
     cantidad: 0,
     precio_base: 0,
+    origen: "usuario", // lo creó el contratista a mano (Fase 2: procedencia)
   };
   if (categoria === "material") base.desperdicio_pct = 0;
   if (categoria === "herramienta") base.pct_sobre_mo = 0;
@@ -123,7 +124,10 @@ export default function TarjetaPrecioUnitario({
       prev.map((it, i) => {
         if (i !== idx) return it;
         const num = ["cantidad", "precio_base", "desperdicio_pct", "pct_sobre_mo"].includes(campo);
-        return { ...it, [campo]: num ? Number(valor) || 0 : valor };
+        // Procedencia (Fase 2): al editar un número, el insumo deja de ser
+        // "sugerido por IA" y pasa a ser del usuario.
+        const origen = num ? ("usuario" as const) : it.origen;
+        return { ...it, [campo]: num ? Number(valor) || 0 : valor, origen };
       })
     );
   }

@@ -72,6 +72,14 @@ export interface InsumoAPU {
   // Trazabilidad del precio (material / equipo): de dónde salió.
   // El precio_base es el "elegido"; las fuentes son las opciones consideradas.
   fuentes_precio?: FuentePrecio[];
+
+  /**
+   * Procedencia del insumo (Fase 2): "ia_sugerida" al nacer de un agente,
+   * "usuario" en cuanto el contratista lo edita o lo crea a mano, "catalogo"
+   * cuando venga del catálogo de la empresa. Un insumo "ia_sugerida" no debe
+   * publicarse sin revisión humana (regla del PLAN MAESTRO §3.4).
+   */
+  origen?: "ia_sugerida" | "usuario" | "catalogo";
 }
 
 /**

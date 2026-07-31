@@ -12,6 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { claude, MODELS } from "@/lib/claude";
+import { sanitizarSalidaAgente } from "@/lib/contratos/guardian";
 import type { FuentePrecio } from "@/lib/apu/tipos";
 
 export interface EstimarPrecioInput {
@@ -172,7 +173,11 @@ Recuerda: el usuario va a confirmar con su proveedor real.`;
     throw new Error("El Estimador de Precio no devolvió una estimación válida.");
   }
 
-  const data = toolUse.input as Partial<ToolEstimarInput>;
+  // Frontera IA/motor: fuentes de precio estimadas si, totales derivados no.
+  const { data } = sanitizarSalidaAgente(
+    toolUse.input as Partial<ToolEstimarInput>,
+    "estimador_precio"
+  );
   const inTok = response.usage.input_tokens;
   const outTok = response.usage.output_tokens;
   const costo = (inTok / 1_000_000) * 3 + (outTok / 1_000_000) * 15;

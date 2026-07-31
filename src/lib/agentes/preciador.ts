@@ -11,6 +11,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { claude, MODELS } from "@/lib/claude";
+import { sanitizarSalidaAgente } from "@/lib/contratos/guardian";
 import type { InsumoAPU, ModoAPU, PorcentajesAPU } from "@/lib/apu/tipos";
 import {
   PORCENTAJES_DEFAULT_AVANZADO,
@@ -47,6 +48,8 @@ export interface TpuGenerada {
   porcentajes: PorcentajesAPU;
   notas: string; // justificación de rendimientos y supuestos (regla de oro)
   confianza: number; // 0..1
+  /** Campos del motor que el modelo intentó emitir y el guardián eliminó. */
+  violaciones_frontera?: number;
 }
 
 export interface PreciarResponse extends TpuGenerada {
@@ -247,7 +250,13 @@ Devuelve los insumos por unidad + los porcentajes + la justificación del rendim
     throw new Error("El Agente Preciador no devolvió una TPU válida.");
   }
 
-  const data = toolUse.input as ToolGenerarTpuInput;
+  // Frontera IA/motor: eliminar cualquier campo derivado de dinero que el
+  // modelo haya alucinado (importes, subtotales, precio_unitario…). El motor
+  // los recalcula todos; la IA solo propone entradas editables.
+  const { data, violaciones } = sanitizarSalidaAgente(
+    toolUse.input as ToolGenerarTpuInput,
+    "preciador"
+  );
 
   // Armar los porcentajes según modo (con defaults si el modelo omite alguno)
   const base = modo === "simple" ? PORCENTAJES_DEFAULT_SIMPLE : PORCENTAJES_DEFAULT_AVANZADO;
@@ -266,11 +275,19 @@ Devuelve los insumos por unidad + los porcentajes + la justificación del rendim
   const outTok = response.usage.output_tokens;
   const costo = (inTok / 1_000_000) * 3 + (outTok / 1_000_000) * 15;
 
+  // Procedencia: todo lo que propone el Preciador nace como "ia_sugerida".
+  // Cuando el contratista edite el insumo, la UI lo pasa a "usuario".
+  const insumos = (data.insumos ?? []).map((i) => ({
+    ...i,
+    origen: "ia_sugerida" as const,
+  }));
+
   return {
-    insumos: data.insumos ?? [],
+    insumos,
     porcentajes,
     notas: data.notas ?? "",
     confianza: data.confianza ?? 0.7,
+    violaciones_frontera: violaciones.length,
     meta: {
       modelo: MODELS.sonnet,
       input_tokens: inTok,

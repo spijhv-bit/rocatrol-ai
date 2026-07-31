@@ -46,6 +46,7 @@ interface InsumoDB {
   rendimiento_real: number | null;
   factores: Record<string, number> | null;
   fuentes_precio: InsumoAPU["fuentes_precio"] | null;
+  origen: InsumoAPU["origen"] | null;
   subtotal: number;
 }
 
@@ -71,6 +72,7 @@ function aInsumoAPU(d: InsumoDB): InsumoAPU {
       d.rendimiento_real != null ? Number(d.rendimiento_real) : undefined,
     factores: d.factores ?? undefined,
     fuentes_precio: d.fuentes_precio ?? undefined,
+    origen: d.origen ?? undefined,
   };
 }
 
@@ -89,6 +91,7 @@ function aInsumoDB(i: InsumoAPU, subtotal: number, orden: number) {
     rendimiento_real: i.rendimiento_real ?? null,
     factores: i.factores ?? {},
     fuentes_precio: i.fuentes_precio ?? [],
+    origen: i.origen ?? null,
     subtotal,
     sort_order: orden,
   };
