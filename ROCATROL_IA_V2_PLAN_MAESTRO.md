@@ -7,9 +7,13 @@
 
 ---
 
-## 🔴 SECCIÓN 0 — LO URGENTE (antes de construir nada nuevo)
+## ✅ SECCIÓN 0 — RESUELTA EL 30-JUL-2026 (commit `4c00145`, en producción)
 
-Tres hallazgos de la auditoría que hay que atender **esta semana**. No son mejoras: son fugas activas.
+> Los tres hallazgos urgentes de abajo **ya están corregidos y verificados en vivo**:
+> los 4 endpoints responden **401** sin sesión; los APUs se guardan en Supabase
+> (migraciones 0013 y 0014 aplicadas); y el bug de precios corridos está cerrado.
+> Julio validó en producción que el precio sobrevive al F5 y que borrar un concepto
+> ya no mueve los demás. Se deja el diagnóstico original como registro.
 
 ### 0.1 Los 4 endpoints de IA no piden contraseña — BLOQUEANTE
 
@@ -323,16 +327,48 @@ Cada fase entrega valor por sí sola y es reversible con feature flag por empres
 
 ---
 
-## 7. DECISIONES PENDIENTES DE JULIO
+## 7. DECISIONES (tomadas el 30-jul-2026)
 
-| # | Decisión | Recomendación |
+| # | Decisión | Resolución |
 |---|---|---|
-| 1 | ¿Precio? | **$99/mes anual · $129 mensual** · Pro $199 · trial 7 días con tarjeta |
-| 2 | ¿"Carpetas del sistema" o **expediente dentro de la app**? | Expediente (secciones Planos/Fotos/Documentos/Formatos/Permisos con indicador de qué falta). Mismo beneficio, cero fricción |
-| 3 | ¿Doble salida de PDF? | **Sí** — resuelve la objeción del formato americano |
-| 4 | ¿Entrada por voz en el MVP? | **No.** Postergar a fase 9; el teclado no bloquea la venta |
+| 1 | Modelo de cobro | ✅ **Por cotizaciones, NO por tokens** — ver §7.1 |
+| 2 | ¿"Carpetas del sistema" o expediente en la app? | ✅ **Expediente dentro de la app** (Planos/Fotos/Documentos/Formatos/Permisos con indicador de qué falta) |
+| 3 | ¿Doble salida de PDF? | ✅ **Sí** — interna con APU / ejecutiva para el cliente |
+| 4 | ¿Entrada por voz en el MVP? | ❌ Postergada a fase 9; el teclado no bloquea la venta |
 | 5 | ¿QuickBooks? | En el roadmap público desde el día 1, construir en fase 11 |
-| 6 | ¿Se para el desarrollo de features hasta cerrar fases 0 y 1? | **Sí.** Son fugas activas |
+| 6 | ¿Parar features hasta cerrar fases 0 y 1? | ✅ **Sí — y ya están cerradas y en producción** |
+| 7 | ¿Free tier sin tarjeta? | ✅ **2 cotizaciones sin tarjeta, tarjeta obligatoria desde la 3.ª** |
+
+### 7.1 Modelo de cobro
+
+**Regla central: no vender "tokens", vender "cotizaciones".** Un contratista no sabe qué es un token
+y no quiere aprenderlo. La misma mecánica en su idioma: *"25 cotizaciones al mes"*.
+
+| Plan | Precio | Cotizaciones | Costo IA | Margen bruto |
+|---|---|---|---|---|
+| Prueba | $0 | 2 con marca de agua, sin tarjeta | $3 | costo de venta |
+| Solo | $49/mes | 8 | $12 | **75%** |
+| Pro | $99/mes | 25 | $37 | **63%** |
+| Equipo | $199/mes | 60 + 3 usuarios | $90 | **55%** |
+| Paquete extra | $39 | 10 más | $15 | **62%** |
+
+Base: **~$1.15 USD por cotización** con prompt caching (§3.2); $1.50 en escenario conservador.
+El paquete extra sale al **mismo precio por cotización** que el plan Pro ($3.90 vs $3.96) — deliberado:
+si el extra sale más caro se siente como castigo y la gente deja de usar el producto.
+
+**Reglas del contador (no negociables):**
+1. Una cotización se cuenta **una sola vez**, al generar el catálogo. Correcciones y recálculos van
+   incluidos — si cada corrección descuenta saldo, el usuario tiene miedo de corregir, que es
+   exactamente lo contrario de lo que queremos.
+2. **Medidor discreto**, avisa solo al 80%. El primer mes el objetivo es que usen mucho:
+   uso = hábito = retención.
+3. Las cotizaciones **no se acumulan** (máximo un mes de arrastre), o alguien junta 6 meses y
+   dispara $90 de costo en una semana.
+
+**Infraestructura:** `ai_logs` (migración 0013) ya registra el costo real en dólares por empresa y
+por usuario, y los límites (US$25/empresa/día) son el freno de emergencia. Falta contar
+cotizaciones/mes, mostrar saldo y bloquear al agotarse ≈ **media semana**, y va **después del PDF**
+— primero hay que tener algo que la gente quiera pagar.
 
 ---
 
